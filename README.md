@@ -44,7 +44,7 @@ A personal macOS menu bar app that sends a short message to claude.ai so Claude 
 
 ## Shortcuts
 
-- **Command-U:** toggle the menu bar popover globally when enabled. **Known issue:** the current build can open the popover and then immediately close it. The shortcut should open the popover only when it is not the current window, and close it only when it is the current window.
+- **Command-U:** toggle the menu bar popover globally when enabled.
 - **Command-,**: save and close Settings, then restore the popover.
 
 ## Security and storage
