@@ -14,6 +14,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var countdownTimer: Timer?
     private var popoverOpenedAt = Date.distantPast
     private var activationObserver: NSObjectProtocol?
+    private var deactivationObserver: NSObjectProtocol?
     private var shortcutKeyIsDown = false
     private var restoreTransientWorkItem: DispatchWorkItem?
     private var outsideClickMonitor: Any?
@@ -38,6 +39,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         super.init()
 
         popover.delegate = self
+        deactivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.closePopover() }
+        }
         let contentView = CombinedMenuBarContentView(gptFeature: gptFeature)
             .environmentObject(settings)
             .environmentObject(stats)
@@ -96,6 +104,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     deinit {
         countdownTimer?.invalidate()
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+        if let deactivationObserver { NotificationCenter.default.removeObserver(deactivationObserver) }
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {
