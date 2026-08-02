@@ -31,13 +31,18 @@ cp "Resources/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
 xattr -cr "${APP_DIR}"
 find "${APP_DIR}" -name "._*" -delete
 
-# Sign with a stable code-signing identity if one is available, so the app's
-# code identity stays the same across updates and the macOS keychain does not
-# re-prompt for access every time you update. Falls back to ad-hoc signing
-# (which changes every build, causing keychain re-prompts) if no identity is
-# found. Override the identity name with CODESIGN_IDENTITY if needed.
-SIGN_IDENTITY="${CODESIGN_IDENTITY:-Session Pinger Signing}"
-if security find-identity -v -p codesigning | grep -q "${SIGN_IDENTITY}"; then
+# Prefer the user's Apple Development certificate, which carries their Team
+# ID. An explicit CODESIGN_IDENTITY always wins; the previous local signing
+# identity remains a fallback for development machines without an Apple cert.
+AVAILABLE_IDENTITIES="$(security find-identity -v -p codesigning)"
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    SIGN_IDENTITY="${CODESIGN_IDENTITY}"
+elif [[ "${AVAILABLE_IDENTITIES}" == *"Apple Development:"* ]]; then
+    SIGN_IDENTITY="$(printf '%s\n' "${AVAILABLE_IDENTITIES}" | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -n 1)"
+else
+    SIGN_IDENTITY="Session Pinger Signing"
+fi
+if printf '%s\n' "${AVAILABLE_IDENTITIES}" | grep -Fq "${SIGN_IDENTITY}"; then
     echo "Signing with identity: ${SIGN_IDENTITY}"
     codesign --force --deep --sign "${SIGN_IDENTITY}" "${APP_DIR}"
 else
