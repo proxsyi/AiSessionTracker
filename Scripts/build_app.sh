@@ -14,7 +14,9 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 
 swift build -c release
 
-rm -rf "${DIST_DIR}"
+# Claude and GPT are maintained on separate branches in this shared repo.
+# Replace only the Claude product so building one app never removes the other.
+rm -rf "${DIST_APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 

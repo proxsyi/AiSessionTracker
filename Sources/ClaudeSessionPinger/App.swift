@@ -1,8 +1,12 @@
 import SwiftUI
-import Carbon.HIToolbox
+import KeyboardShortcuts
 
-private let menuHotKeySignature: OSType = 0x53504E47 // "SPNG"
-private let menuHotKeyIdentifier: UInt32 = 1
+private extension KeyboardShortcuts.Name {
+    static let toggleClaudePinger = Self(
+        "toggleClaudePinger",
+        default: .init(.u, modifiers: [.command])
+    )
+}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -12,10 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?
-    private var menuHotKeyRef: EventHotKeyRef?
-    private var menuHotKeyHandlerRef: EventHandlerRef?
     private var menuShortcutSettingObserver: NSObjectProtocol?
-    private var menuHotKeyIsDown = false
+    private var menuShortcutTask: Task<Void, Never>?
+    private var menuShortcutPressCycle = ShortcutPressCycle()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -23,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController = StatusBarController(settings: settings, stats: stats, appState: appState)
         installSettingsShortcut()
         observeMenuShortcutSetting()
-        updateMenuHotKeyRegistration()
+        updateMenuShortcutListener()
         closeStraySwiftUIWindows()
     }
 
@@ -51,7 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let menuShortcutSettingObserver {
             NotificationCenter.default.removeObserver(menuShortcutSettingObserver)
         }
-        unregisterMenuHotKey()
+        menuShortcutTask?.cancel()
+        menuShortcutTask = nil
     }
 
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
@@ -80,102 +84,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.updateMenuHotKeyRegistration() }
+            Task { @MainActor in self?.updateMenuShortcutListener() }
         }
     }
 
-    /// Carbon's registered hot-key API works globally without Accessibility
-    /// or Input Monitoring permission, unlike NSEvent's global key monitor.
-    private func updateMenuHotKeyRegistration() {
-        if settings.enableCommandUShortcut {
-            registerMenuHotKey()
-        } else {
-            unregisterMenuHotKey()
-        }
-    }
+    /// Toggle once on the first key-down of each physical Command-U press.
+    /// Key-up only arms the next press, so duplicate callbacks cannot open
+    /// and immediately close the menu.
+    private func updateMenuShortcutListener() {
+        menuShortcutTask?.cancel()
+        menuShortcutTask = nil
+        menuShortcutPressCycle.reset()
+        guard settings.enableCommandUShortcut else { return }
 
-    private func registerMenuHotKey() {
-        guard menuHotKeyRef == nil else { return }
-
-        let eventTypes = [
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
-        ]
-        let handler: EventHandlerUPP = { _, event, userData in
-            guard let event, let userData else { return noErr }
-            var hotKeyID = EventHotKeyID()
-            let status = GetEventParameter(
-                event,
-                EventParamName(kEventParamDirectObject),
-                EventParamType(typeEventHotKeyID),
-                nil,
-                MemoryLayout<EventHotKeyID>.size,
-                nil,
-                &hotKeyID
-            )
-            guard status == noErr,
-                  hotKeyID.signature == menuHotKeySignature,
-                  hotKeyID.id == menuHotKeyIdentifier else { return noErr }
-            let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
-            let eventKind = GetEventKind(event)
-            Task { @MainActor in
-                appDelegate.handleMenuHotKeyEvent(kind: eventKind)
+        menuShortcutTask = Task { [weak self] in
+            for await eventType in KeyboardShortcuts.events(for: .toggleClaudePinger) {
+                guard !Task.isCancelled else { break }
+                guard let self else { break }
+                let event: ShortcutPressCycle.Event = eventType == .keyDown ? .keyDown : .keyUp
+                if self.menuShortcutPressCycle.handle(event) {
+                    self.handleMenuShortcut()
+                }
+                if eventType == .keyUp {
+                    self.appState.completePopoverShortcutPress?()
+                }
             }
-            return noErr
-        }
-
-        let installStatus = eventTypes.withUnsafeBufferPointer { events in
-            InstallEventHandler(
-                GetApplicationEventTarget(),
-                handler,
-                events.count,
-                events.baseAddress,
-                Unmanaged.passUnretained(self).toOpaque(),
-                &menuHotKeyHandlerRef
-            )
-        }
-        guard installStatus == noErr else { return }
-
-        let hotKeyID = EventHotKeyID(signature: menuHotKeySignature, id: menuHotKeyIdentifier)
-        let registerStatus = RegisterEventHotKey(
-            UInt32(kVK_ANSI_U),
-            UInt32(cmdKey),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &menuHotKeyRef
-        )
-        if registerStatus != noErr {
-            unregisterMenuHotKey()
         }
     }
 
-    private func unregisterMenuHotKey() {
-        if let menuHotKeyRef {
-            UnregisterEventHotKey(menuHotKeyRef)
-            self.menuHotKeyRef = nil
-        }
-        if let menuHotKeyHandlerRef {
-            RemoveEventHandler(menuHotKeyHandlerRef)
-            self.menuHotKeyHandlerRef = nil
-        }
-        menuHotKeyIsDown = false
-    }
-
-    /// Toggle once per physical press. Carbon emits repeated pressed events
-    /// while keys are held; waiting for the matching release prevents one
-    /// press from opening and immediately closing the popover.
-    private func handleMenuHotKeyEvent(kind: UInt32) {
-        if kind == UInt32(kEventHotKeyReleased) {
-            menuHotKeyIsDown = false
-            return
-        }
-        guard kind == UInt32(kEventHotKeyPressed), !menuHotKeyIsDown else { return }
-        menuHotKeyIsDown = true
-        if NSApp.keyWindow?.title == "Settings" {
+    private func handleMenuShortcut() {
+        if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {
-            appState.requestTogglePopover?()
+            appState.requestTogglePopoverFromShortcut?()
         }
     }
 }

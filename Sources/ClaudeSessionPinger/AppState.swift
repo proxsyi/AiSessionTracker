@@ -47,6 +47,8 @@ final class AppState: ObservableObject {
     let stats: StatsStore
     var requestClosePopover: (() -> Void)?
     var requestTogglePopover: (() -> Void)?
+    var requestTogglePopoverFromShortcut: (() -> Void)?
+    var completePopoverShortcutPress: (() -> Void)?
     var requestShowSettings: (() -> Void)?
     var closeSettingsWindow: (() -> Void)?
     var toggleSettingsWindow: (() -> Void)?

@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.16.2
+
+- Ported the verified GPT menu-shortcut lifecycle to Command-U: one activation per physical press, activation-safe presentation, key-up protection, and normal outside-click and Escape dismissal.
+- Replaced the custom Carbon callback with the maintained KeyboardShortcuts implementation and preserved GPT build artifacts when packaging Claude from the shared repository.
+
 ## v1.16.1
 
 - Isolated Claude updates from GPT releases in the shared repository by filtering for `v*` tags with the Claude app asset.
