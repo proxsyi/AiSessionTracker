@@ -445,6 +445,19 @@ struct SettingsView: View {
     private var usageBarsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Usage bars")
+            if let usage = appState.usage {
+                let session = usage.sessionPercent.map { "\($0)%" } ?? "Unavailable"
+                let weekly = usage.weeklyPercent.map { "\($0)%" } ?? "Unavailable"
+                caption("Live account usage — Session: \(session) · Weekly: \(weekly)")
+            } else if let error = appState.usageError {
+                caption(error)
+            } else {
+                caption("Loading live account usage…")
+            }
+            Button("Refresh usage") {
+                Task { await appState.refreshUsage() }
+            }
+            .gptGhostButton()
             toggleRow("Session (5 hour)", isOn: $showSessionBar)
             toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
             caption("Choose which usage windows appear in the menu bar popover.")

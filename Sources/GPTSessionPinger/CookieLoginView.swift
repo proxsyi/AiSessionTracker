@@ -1,9 +1,6 @@
 import SwiftUI
 import WebKit
 
-private let desktopSafariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
-
-
 enum CookieLoginState: Equatable {
     case loading
     case ready
@@ -22,7 +19,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.customUserAgent = desktopSafariUserAgent
+        webView.customUserAgent = ChatGPTWebSession.userAgent
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         #if DEBUG
@@ -120,7 +117,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
             let popupWebView = WKWebView(frame: NSRect(x: 0, y: 0, width: 480, height: 640), configuration: configuration)
-            popupWebView.customUserAgent = desktopSafariUserAgent
+            popupWebView.customUserAgent = ChatGPTWebSession.userAgent
             popupWebView.navigationDelegate = self
             popupWebView.uiDelegate = self
 
@@ -173,48 +170,24 @@ struct CookieLoginRepresentable: NSViewRepresentable {
             store.getAllCookies { [weak self] cookies in
                 guard let self, !self.didCapture, !self.isValidatingCookies else { return }
                 let chatGPTCookies = cookies.filter { $0.domain.contains("chatgpt.com") || $0.domain.contains("openai.com") }
-                guard !chatGPTCookies.isEmpty,
-                      let sessionCookie = chatGPTCookies.first(where: { !$0.value.isEmpty && ($0.name.contains("session") || $0.name.contains("auth") || $0.name == "_account") }) else {
-                    return
-                }
+                guard !chatGPTCookies.isEmpty else { return }
 
-                let sessionValue = sessionCookie.value
                 let header = chatGPTCookies
                     .map { "\($0.name)=\($0.value)" }
                     .joined(separator: "; ")
                 self.isValidatingCookies = true
                 Task { [weak self] in
-                    let authenticated = await Self.isAuthenticated(cookieHeader: header)
+                    let authSession = await ChatGPTWebSession.fetchAuthSession(cookieHeader: header)
                     guard let self else { return }
                     self.isValidatingCookies = false
-                    guard authenticated, !self.didCapture else { return }
+                    guard let authSession, !self.didCapture else { return }
                     // Do not save transient OAuth, account-picker, or CSRF
                     // cookies. ChatGPT itself must first confirm the session.
                     self.didCapture = true
                     self.stopPolling()
-                    self.onCookiesCaptured(sessionValue, nil, header)
+                    self.onCookiesCaptured(authSession.accessToken, authSession.accountID, header)
                 }
             }
-        }
-
-        private static func isAuthenticated(cookieHeader: String) async -> Bool {
-            guard let url = URL(string: "https://chatgpt.com/api/auth/session") else { return false }
-            var request = URLRequest(url: url)
-            request.timeoutInterval = 10
-            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
-            request.setValue(desktopSafariUserAgent, forHTTPHeaderField: "User-Agent")
-            guard let (data, response) = try? await URLSession.shared.data(for: request),
-                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-            guard object["user"] != nil || object["email"] != nil,
-                  let backendURL = URL(string: "https://chatgpt.com/backend-api/models") else { return false }
-            var backendRequest = URLRequest(url: backendURL)
-            backendRequest.timeoutInterval = 10
-            backendRequest.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
-            backendRequest.setValue(desktopSafariUserAgent, forHTTPHeaderField: "User-Agent")
-            guard let (_, backendResponse) = try? await URLSession.shared.data(for: backendRequest),
-                  let backendHTTP = backendResponse as? HTTPURLResponse else { return false }
-            return (200...299).contains(backendHTTP.statusCode)
         }
 
         deinit {

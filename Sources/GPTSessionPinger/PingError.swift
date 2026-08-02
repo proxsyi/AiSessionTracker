@@ -6,6 +6,7 @@ enum PingError: LocalizedError {
     case network(URLError)
     case sessionExpired
     case rateLimited
+    case browserVerificationRequired
     case serverError(Int, String)
     case unexpectedResponse(String)
     case unknown(Error)
@@ -22,6 +23,8 @@ enum PingError: LocalizedError {
             return "Your ChatGPT session looks expired or invalid. Sign in again from Settings."
         case .rateLimited:
             return "Rate limited by the server. Will try again next scheduled time."
+        case .browserVerificationRequired:
+            return "ChatGPT requires its signed-in browser to verify this turn."
         case .serverError(let code, let body):
             return "Server returned \(code): \(body.prefix(200))"
         case .unexpectedResponse(let details):

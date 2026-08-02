@@ -54,6 +54,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         unregisterMenuHotKey()
     }
 
+    /// Reopening the accessory app from Finder, Spotlight, `open`, or a test
+    /// harness presents a real window. This keeps the menu-bar-first behavior
+    /// while making the running build directly inspectable and testable.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        appState.requestShowSettings?()
+        return true
+    }
+
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
     /// closed and closes it when it's already open, whenever this app --
     /// the menu bar popover or the Settings window itself -- is active.
@@ -173,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard kind == UInt32(kEventHotKeyPressed), !menuHotKeyIsDown else { return }
         menuHotKeyIsDown = true
         waitForMenuHotKeyRelease()
-        if NSApp.keyWindow?.title == "Settings" {
+        if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {
             appState.requestTogglePopover?()
