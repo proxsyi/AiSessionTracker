@@ -3,6 +3,7 @@ import Foundation
 struct ChatGPTAuthSession: Sendable {
     let accessToken: String
     let accountID: String?
+    let planType: String?
 }
 
 /// Resolves the short-lived bearer token used by ChatGPT's web backend from
@@ -23,7 +24,11 @@ enum ChatGPTWebSession {
 
         let trimmed = savedCredential.trimmingCharacters(in: .whitespacesAndNewlines)
         guard looksLikeAccessToken(trimmed) else { throw PingError.sessionExpired }
-        return ChatGPTAuthSession(accessToken: trimmed, accountID: accountID?.nilIfEmpty)
+        return ChatGPTAuthSession(
+            accessToken: trimmed,
+            accountID: accountID?.nilIfEmpty,
+            planType: planType(from: trimmed)
+        )
     }
 
     static func fetchAuthSession(cookieHeader: String) async -> ChatGPTAuthSession? {
@@ -45,7 +50,29 @@ enum ChatGPTWebSession {
 
         let accountID = findString(in: object, keys: ["accountId", "account_id", "chatgpt_account_id"])
             ?? ((object["account"] as? [String: Any])?["id"] as? String)
-        return ChatGPTAuthSession(accessToken: accessToken, accountID: accountID?.nilIfEmpty)
+        let planType = findString(in: object, keys: ["planType", "plan_type", "chatgpt_plan_type"])
+            ?? planType(from: accessToken)
+        return ChatGPTAuthSession(
+            accessToken: accessToken,
+            accountID: accountID?.nilIfEmpty,
+            planType: planType?.nilIfEmpty
+        )
+    }
+
+    /// ChatGPT embeds the active consumer plan in the short-lived web token.
+    /// Reading the local claim lets the login sheet identify a stale Free
+    /// session without sending or logging the credential anywhere else.
+    static func planType(from accessToken: String) -> String? {
+        let segments = accessToken.split(separator: ".")
+        guard segments.count >= 2 else { return nil }
+        var payload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = payload.count % 4
+        if remainder != 0 { payload += String(repeating: "=", count: 4 - remainder) }
+        guard let data = Data(base64Encoded: payload),
+              let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return findString(in: object, keys: ["chatgpt_plan_type", "plan_type", "planType"])
     }
 
     static func deviceID(from cookieHeader: String) -> String? {

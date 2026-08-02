@@ -38,6 +38,8 @@ enum GPTClient {
                 message: message,
                 model: selectedModel,
                 conversationID: conversation.id,
+                previousNodeID: conversation.parentMessageID,
+                auth: auth,
                 cookieHeader: cookies,
                 timeoutSeconds: max(timeoutSeconds, 45)
             )
@@ -240,35 +242,14 @@ enum GPTClient {
             let (data, response) = try await perform(request)
             try validate(response: response, data: data)
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            if let reply = newestAssistantReply(in: object, stoppingAt: previousNodeID), !reply.isEmpty {
-                return reply
+            if let turn = ChatGPTConversationParser.newestAssistantTurn(
+                in: object,
+                stoppingAt: previousNodeID
+            ), turn.isComplete {
+                return turn.text
             }
         }
         return ""
-    }
-
-    private static func newestAssistantReply(in object: [String: Any], stoppingAt previousNodeID: String?) -> String? {
-        guard let mapping = object["mapping"] as? [String: Any],
-              var nodeID = object["current_node"] as? String else { return nil }
-        var visited = Set<String>()
-        while !nodeID.isEmpty, !visited.contains(nodeID), nodeID != previousNodeID {
-            visited.insert(nodeID)
-            guard let node = mapping[nodeID] as? [String: Any] else { return nil }
-            if let message = node["message"] as? [String: Any],
-               let author = message["author"] as? [String: Any],
-               author["role"] as? String == "assistant",
-               let content = message["content"] as? [String: Any],
-               let parts = content["parts"] as? [Any] {
-                let reply = parts.compactMap { part -> String? in
-                    if let text = part as? String { return text }
-                    if let dictionary = part as? [String: Any] { return dictionary["text"] as? String }
-                    return nil
-                }.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                if !reply.isEmpty { return reply }
-            }
-            nodeID = node["parent"] as? String ?? ""
-        }
-        return nil
     }
 
     private static func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {

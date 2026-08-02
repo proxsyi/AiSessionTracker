@@ -19,6 +19,11 @@ let package = Package(
                 .linkedFramework("CoreFoundation"),
                 .linkedFramework("IOKit")
             ]
+        ),
+        .testTarget(
+            name: "GPTSessionPingerTests",
+            dependencies: ["GPTSessionPinger"],
+            path: "Tests/GPTSessionPingerTests"
         )
     ]
 )

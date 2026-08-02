@@ -44,7 +44,7 @@ struct SettingsView: View {
     @State private var notifySessionAvailable = true
     @State private var notifySessionStarted = true
     @State private var autoStartAvailableSessions = false
-    @State private var enableCommandUShortcut = true
+    @State private var enableCommandIShortcut = true
     @State private var enableScheduledWake = true
     @State private var preferClearGlass = true
     @State private var selectedTab: SettingsTab = .general
@@ -55,6 +55,7 @@ struct SettingsView: View {
     @State private var loginCaptured = false
     @State private var isFetchingOrganization = false
     @State private var showManualKeys = false
+    @State private var isClearingLogin = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -89,13 +90,13 @@ struct SettingsView: View {
         .onDisappear {
             appState.requestSaveAndCloseSettings = nil
         }
+        .onChange(of: appState.availableModels) { models in
+            guard !models.isEmpty, !models.contains(model) else { return }
+            model = preferredModel(in: models)
+        }
         .sheet(isPresented: $showingLogin) {
-            CookieLoginSheet { sessionKey, organizationIDFromCookie, cookieHeader in
-                handleLoginCapture(
-                    sessionKey: sessionKey,
-                    organizationIDFromCookie: organizationIDFromCookie,
-                    cookieHeader: cookieHeader
-                )
+            CookieLoginSheet { capture in
+                handleLoginCapture(capture)
             }
         }
     }
@@ -230,18 +231,30 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Account")
 
-            Button(loginCaptured || !settings.cookieHeader.isEmpty ? "Log in again" : "Log in with ChatGPT") {
-                showingLogin = true
+            HStack {
+                Button(loginCaptured || !settings.cookieHeader.isEmpty ? "Switch ChatGPT account" : "Log in with ChatGPT") {
+                    showingLogin = true
+                }
+                .gptPrimaryButton()
+
+                if !settings.cookieHeader.isEmpty {
+                    Button(isClearingLogin ? "Clearing…" : "Log out & clear cookies") {
+                        clearLogin()
+                    }
+                    .gptGhostButton()
+                    .disabled(isClearingLogin)
+                }
             }
-            .gptPrimaryButton()
 
             if loginCaptured {
-                Text("Signed in -- session and cookies captured automatically.")
+                Text("Signed in — session and cookies captured for this app only · Plan: \(accountPlanLabel)")
                     .font(.system(size: 11))
                     .foregroundColor(GPTTheme.accent)
             } else if !settings.cookieHeader.isEmpty {
-                caption("Using a previously captured ChatGPT session.")
+                caption("Using a previously captured ChatGPT session · Plan: \(accountPlanLabel)")
             }
+
+            caption("Logging out clears the GPT app's Keychain login and embedded-browser storage. Safari and Claude Session Pinger are not affected.")
 
             keysDisclosure
         }
@@ -297,7 +310,9 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .tint(GPTTheme.accent)
-                caption("Your choice is tried first. If ChatGPT rejects it, the app tries another available model.")
+                caption(appState.availableModels.isEmpty
+                    ? "No live catalog is available yet; the low-usage fallback is shown until a signed-in refresh succeeds."
+                    : "\(appState.availableModels.count) models reported by this account, in ChatGPT's server order. A blocked model is skipped before pinging.")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -358,20 +373,14 @@ struct SettingsView: View {
     }
 
     private var modelOptions: [String] {
-        let selected = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        var options = selected.isEmpty ? [] : [selected]
-        let pool = appState.availableModels + UsageChecker.fallbackModels
-        for slug in pool.sorted(by: { modelRank($0) < modelRank($1) }) where !options.contains(slug) {
-            options.append(slug)
-        }
-        return options
+        appState.availableModels.isEmpty ? UsageChecker.fallbackModels : appState.availableModels
     }
 
-    private func modelRank(_ slug: String) -> Int {
-        if slug == "auto" { return 0 }
-        if slug.contains("terra") { return 1 }
-        if slug.contains("chat-latest") { return 2 }
-        return 3
+    private func preferredModel(in models: [String]) -> String {
+        for exact in ["gpt-5-4-t-mini", "gpt-5-4-mini"] where models.contains(exact) {
+            return exact
+        }
+        return models.first(where: { $0.lowercased().contains("mini") }) ?? models[0]
     }
 
     private func modelLabel(_ slug: String) -> String {
@@ -421,9 +430,7 @@ struct SettingsView: View {
             if !settings.conversationID.isEmpty {
                 HStack {
                     Button("Open pinger chat") {
-                        if let url = URL(string: "https://chatgpt.com/c/\(settings.conversationID)") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        ChatGPTChatWindowController.shared.openConversation(id: settings.conversationID)
                     }
                     .gptGhostButton()
                     Spacer()
@@ -446,9 +453,14 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Usage bars")
             if let usage = appState.usage {
-                let session = usage.sessionPercent.map { "\($0)%" } ?? "Unavailable"
-                let weekly = usage.weeklyPercent.map { "\($0)%" } ?? "Unavailable"
-                caption("Live account usage — Session: \(session) · Weekly: \(weekly)")
+                caption("\(usage.tracks.count) live counter\(usage.tracks.count == 1 ? "" : "s") reported for the \(usage.planType ?? "unknown") plan.")
+                ForEach(usage.tracks) { track in
+                    let value = track.usedPercent.map { "\($0)% used" }
+                        ?? track.valueText
+                        ?? track.remainingText
+                        ?? "Availability only"
+                    caption("\(track.title): \(value)")
+                }
             } else if let error = appState.usageError {
                 caption(error)
             } else {
@@ -458,9 +470,9 @@ struct SettingsView: View {
                 Task { await appState.refreshUsage() }
             }
             .gptGhostButton()
-            toggleRow("Session (5 hour)", isOn: $showSessionBar)
-            toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
-            caption("Choose which usage windows appear in the menu bar popover.")
+            toggleRow("Codex / agentic 5-hour window", isOn: $showSessionBar)
+            toggleRow("Codex / agentic weekly window", isOn: $showWeeklyBar)
+            caption("ChatGPT model and feature counters, workspace periods, and unknown-duration counters appear whenever the signed-in account reports them. Missing percentages are never estimated.")
             Divider()
             SectionHeader(text: "Countdown card")
             toggleRow("Next possible session", isOn: $showNextPossibleCountdown)
@@ -498,13 +510,13 @@ struct SettingsView: View {
             toggleRow("Session started by app", isOn: $notifySessionStarted)
 
             thresholdPicker(
-                title: "Session usage alerts",
-                subtitle: "Notify when the 5-hour window reaches:",
+                title: "Codex 5-hour usage alerts",
+                subtitle: "Notify when the agentic 5-hour window reaches:",
                 selection: $sessionThresholds
             )
             thresholdPicker(
-                title: "Weekly usage alerts",
-                subtitle: "Notify when the 7-day window reaches:",
+                title: "Codex weekly usage alerts",
+                subtitle: "Notify when the agentic 7-day window reaches:",
                 selection: $weeklyThresholds
             )
 
@@ -573,7 +585,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "App")
             toggleRow("Launch at login", isOn: $launchAtLogin)
-            toggleRow("Command-I opens GPT menu", isOn: $enableCommandUShortcut)
+            toggleRow("Command-I opens GPT menu", isOn: $enableCommandIShortcut)
             toggleRow("Wake Mac for scheduled pings", isOn: $enableScheduledWake)
             if enableScheduledWake {
                 caption(appState.wakeSupportStatus)
@@ -690,13 +702,14 @@ struct SettingsView: View {
     /// available, otherwise fetched straight from ChatGPT -- and refresh
     /// usage right away so the popover fills in without waiting for the next
     /// timer tick.
-    private func handleLoginCapture(sessionKey: String, organizationIDFromCookie: String?, cookieHeader: String) {
-        settings.sessionKey = sessionKey
-        settings.cookieHeader = cookieHeader
+    private func handleLoginCapture(_ capture: ChatGPTLoginCapture) {
+        settings.sessionKey = capture.sessionKey
+        settings.cookieHeader = capture.cookieHeader
+        settings.accountPlanType = capture.planType ?? ""
         sessionKeyInput = ""
         loginCaptured = true
         testResult = nil
-        if let organizationIDFromCookie, !organizationIDFromCookie.isEmpty {
+        if let organizationIDFromCookie = capture.organizationID, !organizationIDFromCookie.isEmpty {
             organizationID = organizationIDFromCookie
             settings.organizationID = organizationIDFromCookie
             Task { await appState.refreshUsage() }
@@ -704,7 +717,10 @@ struct SettingsView: View {
         }
         isFetchingOrganization = true
         Task {
-            let fetched = await UsageChecker.fetchOrganizationID(sessionKey: sessionKey, cookieHeader: cookieHeader)
+            let fetched = await UsageChecker.fetchOrganizationID(
+                sessionKey: capture.sessionKey,
+                cookieHeader: capture.cookieHeader
+            )
             await MainActor.run {
                 isFetchingOrganization = false
                 if let fetched, !fetched.isEmpty {
@@ -713,6 +729,26 @@ struct SettingsView: View {
                 }
             }
             await appState.refreshUsage()
+        }
+    }
+
+    private var accountPlanLabel: String {
+        let plan = settings.accountPlanType.trimmingCharacters(in: .whitespacesAndNewlines)
+        return plan.isEmpty ? "Not reported" : plan.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private func clearLogin() {
+        guard !isClearingLogin else { return }
+        isClearingLogin = true
+        Task { @MainActor in
+            await ChatGPTWebsiteData.clear()
+            settings.clearChatGPTLogin()
+            organizationID = ""
+            sessionKeyInput = ""
+            loginCaptured = false
+            testResult = "Success — ChatGPT login and this app's browser cookies were cleared."
+            appState.clearAccountData()
+            isClearingLogin = false
         }
     }
 
@@ -736,7 +772,7 @@ struct SettingsView: View {
         notifySessionAvailable = settings.notifySessionAvailable
         notifySessionStarted = settings.notifySessionStarted
         autoStartAvailableSessions = settings.autoStartAvailableSessions
-        enableCommandUShortcut = settings.enableCommandUShortcut
+        enableCommandIShortcut = settings.enableCommandIShortcut
         enableScheduledWake = settings.enableScheduledWake
         preferClearGlass = settings.preferClearGlass
         autoUpdate = settings.autoUpdateEnabled
@@ -777,7 +813,7 @@ struct SettingsView: View {
         settings.notifySessionAvailable = notifySessionAvailable
         settings.notifySessionStarted = notifySessionStarted
         settings.autoStartAvailableSessions = autoStartAvailableSessions
-        settings.enableCommandUShortcut = enableCommandUShortcut
+        settings.enableCommandIShortcut = enableCommandIShortcut
         settings.enableScheduledWake = enableScheduledWake
         settings.preferClearGlass = preferClearGlass
         settings.autoUpdateEnabled = autoUpdate

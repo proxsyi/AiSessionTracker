@@ -7,8 +7,40 @@ enum CookieLoginState: Equatable {
     case failed(String)
 }
 
+struct ChatGPTLoginCapture: Equatable {
+    let sessionKey: String
+    let organizationID: String?
+    let cookieHeader: String
+    let planType: String?
+}
+
+@MainActor
+enum ChatGPTWebsiteData {
+    /// WKWebsiteDataStore.default() is scoped to this app's WebKit container.
+    /// Clearing it signs the embedded ChatGPT browser out without touching
+    /// Safari, the Claude app, or the Claude Session Pinger's container.
+    static func clear() async {
+        let store = WKWebsiteDataStore.default()
+        let cookies = await withCheckedContinuation { continuation in
+            store.httpCookieStore.getAllCookies { continuation.resume(returning: $0) }
+        }
+        for cookie in cookies {
+            await withCheckedContinuation { continuation in
+                store.httpCookieStore.delete(cookie) { continuation.resume() }
+            }
+        }
+        let types = WKWebsiteDataStore.allWebsiteDataTypes()
+        let records = await withCheckedContinuation { continuation in
+            store.fetchDataRecords(ofTypes: types) { continuation.resume(returning: $0) }
+        }
+        await withCheckedContinuation { continuation in
+            store.removeData(ofTypes: types, for: records) { continuation.resume() }
+        }
+    }
+}
+
 struct CookieLoginRepresentable: NSViewRepresentable {
-    let onCookiesCaptured: (_ sessionKey: String, _ organizationID: String?, _ cookieHeader: String) -> Void
+    let onCookiesCaptured: (ChatGPTLoginCapture) -> Void
     let onStateChange: (CookieLoginState) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -44,7 +76,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
-        private let onCookiesCaptured: (String, String?, String) -> Void
+        private let onCookiesCaptured: (ChatGPTLoginCapture) -> Void
         private let onStateChange: (CookieLoginState) -> Void
         private weak var webView: WKWebView?
         private var pollTimer: Timer?
@@ -52,7 +84,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         private var isValidatingCookies = false
         private var popupWindows: [NSWindow] = []
 
-        init(onCookiesCaptured: @escaping (String, String?, String) -> Void, onStateChange: @escaping (CookieLoginState) -> Void) {
+        init(onCookiesCaptured: @escaping (ChatGPTLoginCapture) -> Void, onStateChange: @escaping (CookieLoginState) -> Void) {
             self.onCookiesCaptured = onCookiesCaptured
             self.onStateChange = onStateChange
         }
@@ -105,7 +137,10 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         }
 
         private func isExpectedNavigationInterruption(_ error: Error) -> Bool {
-            (error as? URLError)?.code == .cancelled
+            if (error as? URLError)?.code == .cancelled { return true }
+            let nsError = error as NSError
+            return nsError.domain == WKError.errorDomain
+                && nsError.code == 102 // WebKitErrorFrameLoadInterruptedByPolicyChange
         }
 
         // MARK: WKUIDelegate -- needed so SSO/OAuth popups (e.g. "Continue with Google") can open
@@ -185,7 +220,12 @@ struct CookieLoginRepresentable: NSViewRepresentable {
                     // cookies. ChatGPT itself must first confirm the session.
                     self.didCapture = true
                     self.stopPolling()
-                    self.onCookiesCaptured(authSession.accessToken, authSession.accountID, header)
+                    self.onCookiesCaptured(ChatGPTLoginCapture(
+                        sessionKey: authSession.accessToken,
+                        organizationID: authSession.accountID,
+                        cookieHeader: header,
+                        planType: authSession.planType
+                    ))
                 }
             }
         }
@@ -199,11 +239,13 @@ struct CookieLoginRepresentable: NSViewRepresentable {
 struct CookieLoginSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("preferClearGlass") private var preferClearGlass = true
-    let onComplete: (_ sessionKey: String, _ organizationID: String?, _ cookieHeader: String) -> Void
+    let onComplete: (ChatGPTLoginCapture) -> Void
 
     @State private var didFinish = false
     @State private var loginState: CookieLoginState = .loading
     @State private var reloadToken = UUID()
+    @State private var pendingCapture: ChatGPTLoginCapture?
+    @State private var isClearing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -244,18 +286,16 @@ struct CookieLoginSheet: View {
                 }
                 .padding(16)
             } else {
-                Text("Log in below. Once you're signed in, this closes automatically and your session is captured -- nothing to copy or paste. If your account uses \"Continue with Google\" or similar, that opens in its own sign-in window.")
+                Text("Log in below. The app will show the detected plan before saving anything. If this is the wrong account, choose Switch account to clear this app's browser cookies and sign in again.")
                     .font(.system(size: 11))
                     .foregroundColor(GPTTheme.textSecondary)
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                     .fixedSize(horizontal: false, vertical: true)
                 CookieLoginRepresentable(
-                    onCookiesCaptured: { sessionKey, organizationID, cookieHeader in
+                    onCookiesCaptured: { capture in
                         guard !didFinish else { return }
-                        didFinish = true
-                        onComplete(sessionKey, organizationID, cookieHeader)
-                        dismiss()
+                        pendingCapture = capture
                     },
                     onStateChange: { state in
                         loginState = state
@@ -263,10 +303,54 @@ struct CookieLoginSheet: View {
                 )
                 .id(reloadToken)
                 .padding(12)
+
+                if let pendingCapture {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Signed-in account detected")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Plan: \(planLabel(pendingCapture.planType))")
+                            .font(.system(size: 11))
+                            .foregroundColor(GPTTheme.textSecondary)
+                        HStack {
+                            Button("Use this account") {
+                                guard !didFinish else { return }
+                                didFinish = true
+                                onComplete(pendingCapture)
+                                dismiss()
+                            }
+                            .gptPrimaryButton()
+                            Button(isClearing ? "Clearing…" : "Switch account") {
+                                switchAccount()
+                            }
+                            .gptGhostButton()
+                            .disabled(isClearing)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                }
             }
         }
         .environment(\.gptClearGlass, preferClearGlass)
         .frame(width: 480, height: 620)
         .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
+    }
+
+    private func planLabel(_ plan: String?) -> String {
+        guard let plan, !plan.isEmpty else { return "Not reported" }
+        return plan.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    private func switchAccount() {
+        guard !isClearing else { return }
+        isClearing = true
+        Task { @MainActor in
+            await ChatGPTWebsiteData.clear()
+            pendingCapture = nil
+            didFinish = false
+            loginState = .loading
+            reloadToken = UUID()
+            isClearing = false
+        }
     }
 }

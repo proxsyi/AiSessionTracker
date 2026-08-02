@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuHotKeyHandlerRef: EventHandlerRef?
     private var menuShortcutSettingObserver: NSObjectProtocol?
     private var menuHotKeyIsDown = false
+    private var menuTestWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -25,6 +26,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeMenuShortcutSetting()
         updateMenuHotKeyRegistration()
         closeStraySwiftUIWindows()
+        let showMenuForTesting = UserDefaults.standard.bool(forKey: "showMenuPopoverForTesting")
+            || ProcessInfo.processInfo.arguments.contains("--show-menu-popover-for-testing")
+        if showMenuForTesting {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.showMenuTestWindow()
+            }
+        }
     }
 
     /// The SwiftUI `Settings { EmptyView() }` scene below only exists to
@@ -54,11 +62,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         unregisterMenuHotKey()
     }
 
-    /// Reopening the accessory app from Finder, Spotlight, `open`, or a test
-    /// harness presents a real window. This keeps the menu-bar-first behavior
-    /// while making the running build directly inspectable and testable.
+    /// Reopening the accessory app from Finder, Spotlight, or `open` presents
+    /// its actual menu-bar popover. This matches a menu-bar app's normal
+    /// behavior and keeps Ping now reachable without hunting for the icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        appState.requestShowSettings?()
+        if !flag {
+            appState.requestTogglePopover?()
+        }
         return true
     }
 
@@ -84,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func observeMenuShortcutSetting() {
         menuShortcutSettingObserver = NotificationCenter.default.addObserver(
-            forName: .commandUShortcutSettingChanged,
+            forName: .commandIShortcutSettingChanged,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -95,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Carbon's registered hot-key API works globally without Accessibility
     /// or Input Monitoring permission, unlike NSEvent's global key monitor.
     private func updateMenuHotKeyRegistration() {
-        if settings.enableCommandUShortcut {
+        if settings.enableCommandIShortcut {
             registerMenuHotKey()
         } else {
             unregisterMenuHotKey()
@@ -170,9 +180,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuHotKeyIsDown = false
     }
 
-    /// Toggle once per physical press. Carbon emits repeated pressed events
-    /// while keys are held; waiting for the matching release prevents one
-    /// press from opening and immediately closing the popover.
+    /// Toggle on the physical press edge only. Carbon's matching release is
+    /// the sole authority that clears the state, so a timer cannot mistake a
+    /// still-held shortcut for a second press and immediately close the menu.
     private func handleMenuHotKeyEvent(kind: UInt32) {
         if kind == UInt32(kEventHotKeyReleased) {
             menuHotKeyIsDown = false
@@ -180,7 +190,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard kind == UInt32(kEventHotKeyPressed), !menuHotKeyIsDown else { return }
         menuHotKeyIsDown = true
-        waitForMenuHotKeyRelease()
         if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {
@@ -188,19 +197,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A Carbon release event can occasionally be lost while macOS changes
-    /// the active window to the popover. Polling the Command modifier gives
-    /// the shortcut a permission-free recovery path without accepting key
-    /// repeat as a second press.
-    private func waitForMenuHotKeyRelease() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            guard let self, self.menuHotKeyIsDown else { return }
-            if NSEvent.modifierFlags.contains(.command) {
-                self.waitForMenuHotKeyRelease()
-            } else {
-                self.menuHotKeyIsDown = false
-            }
+    /// Computer Use cannot attach to a transient NSPopover. This launch-flag
+    /// harness hosts the exact production menu view in a normal window so
+    /// every button can be exercised end to end. It is unreachable unless a
+    /// developer explicitly sets the testing preference or launch argument.
+    private func showMenuTestWindow() {
+        if let menuTestWindow {
+            menuTestWindow.makeKeyAndOrderFront(nil)
+            return
         }
+        let rootView = MenuBarContentView()
+            .environmentObject(settings)
+            .environmentObject(stats)
+            .environmentObject(appState)
+        let hosting = NSHostingController(rootView: rootView)
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "GPT Menu Test"
+        window.styleMask = [.titled, .closable]
+        window.contentMinSize = NSSize(width: 320, height: 500)
+        window.isReleasedWhenClosed = false
+        window.center()
+        menuTestWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 }
 

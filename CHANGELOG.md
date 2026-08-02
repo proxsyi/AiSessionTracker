@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.18.0
+
+- Split normal ChatGPT model/feature counters from Codex agentic limits so 3-hour, 5-hour, weekly, 30-day, code-review, credit, and workspace controls are shown with their real reported durations and sources.
+- Added live ChatGPT feature counters from the signed-in conversation metadata, including remaining-only counters without fabricated percentages, plus blocked-model availability handling.
+- Added explicit Log out & clear cookies and Switch account flows that clear this app's Keychain credentials, dedicated conversation, and app-scoped WebKit storage without affecting Safari or Claude Session Pinger.
+- Show the signed-in plan before accepting a browser login, preserve the server's real visible model catalog and order, and migrate a retired selection to the preferred reported mini model.
+- Made browser-backed pings verify completion from the dedicated conversation's active backend branch, while preserving one conversation across every scheduled and manual ping.
+- Open the dedicated pinger chat inside this app's own authenticated ChatGPT browser session so a different Safari account cannot redirect or hide it.
+- Fixed the Command-I popover race by making Carbon press/release events the sole hotkey authority.
+- Made reopening the running app present its real menu-bar popover so Ping now remains directly reachable.
+- Added regression tests for usage-window labeling, feature counters, code-review and credit tracks, model availability/catalog parsing, and same-conversation reply parsing.
+
 ## v1.17.1
 
 - Fixed ChatGPT pings end to end: login now captures the web access token and account ID, requests include current bearer/device/sentinel context, and browser-verification turns run through ChatGPT's signed-in web page.

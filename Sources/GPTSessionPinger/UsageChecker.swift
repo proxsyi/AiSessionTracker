@@ -1,11 +1,59 @@
 import Foundation
 
+enum GPTUsageScope: String, Equatable {
+    case chatGPTModel
+    case chatGPTFeature
+    case codex
+    case workspace
+}
+
+struct GPTUsageTrack: Identifiable, Equatable {
+    var id: String
+    var scope: GPTUsageScope
+    var title: String
+    var usedPercent: Int?
+    var remaining: Int?
+    var limit: Int?
+    var resetsAt: Date?
+    var windowSeconds: Int?
+    var isBlocked: Bool
+    var modelSlug: String?
+    var valueText: String? = nil
+
+    var remainingText: String? {
+        if let remaining, let limit { return "\(remaining) of \(limit) remaining" }
+        if let remaining { return "\(remaining) remaining" }
+        return nil
+    }
+}
+
 struct GPTUsage: Equatable {
-    var sessionPercent: Int?
-    var sessionResetsAt: Date?
-    var weeklyPercent: Int?
-    var weeklyResetsAt: Date?
+    var tracks: [GPTUsageTrack]
+    var blockedFeatures: [String]
+    var planType: String?
     var fetchedAt: Date
+
+    var sessionTrack: GPTUsageTrack? {
+        tracks.first { $0.scope == .codex && $0.windowSeconds == 18_000 }
+    }
+    var weeklyTrack: GPTUsageTrack? {
+        tracks.first { $0.scope == .codex && $0.windowSeconds == 604_800 }
+    }
+    var sessionPercent: Int? { sessionTrack?.usedPercent }
+    var sessionResetsAt: Date? { sessionTrack?.resetsAt }
+    var weeklyPercent: Int? { weeklyTrack?.usedPercent }
+    var weeklyResetsAt: Date? { weeklyTrack?.resetsAt }
+
+    func modelTrack(for slug: String) -> GPTUsageTrack? {
+        let normalized = slug.lowercased()
+        return tracks.first { track in
+            guard track.scope == .chatGPTModel,
+                  let candidate = track.modelSlug?.lowercased() else { return false }
+            return candidate == normalized
+                || normalized.hasPrefix(candidate + "-")
+                || candidate.hasPrefix(normalized + "-")
+        }
+    }
 
 }
 
@@ -50,22 +98,61 @@ enum UsageChecker {
         } catch {
             throw UsageError.sessionExpired
         }
-        guard let request = ChatGPTWebSession.makeBackendRequest(
+        var tracks: [GPTUsageTrack] = []
+        var blockedFeatures: [String] = []
+        var planType = auth.planType
+        var successfulSourceCount = 0
+        var sawSessionFailure = false
+
+        if let request = ChatGPTWebSession.makeBackendRequest(
             path: "/wham/usage",
             auth: auth,
             cookieHeader: cookies
-        ) else { throw UsageError.unexpectedResponse }
-        let (data, response) = try await perform(request)
-        try validate(response: response)
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        ), let (data, response) = try? await perform(request),
+           let http = response as? HTTPURLResponse {
+            if (200...299).contains(http.statusCode),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                successfulSourceCount += 1
+                tracks.append(contentsOf: parseAgenticTracks(object))
+                planType = (object["plan_type"] as? String) ?? planType
+            } else if [401, 403].contains(http.statusCode) {
+                sawSessionFailure = true
+            }
+        }
+
+        let initBody = try JSONSerialization.data(withJSONObject: [
+            "gizmo_id": NSNull(),
+            "requested_default_model": NSNull(),
+            "conversation_id": NSNull(),
+            "timezone_offset_min": TimeZone.current.secondsFromGMT() / -60,
+            "system_hints": []
+        ])
+        if let request = ChatGPTWebSession.makeBackendRequest(
+            path: "/conversation/init",
+            method: "POST",
+            auth: auth,
+            cookieHeader: cookies,
+            body: initBody
+        ), let (data, response) = try? await perform(request),
+           let http = response as? HTTPURLResponse {
+            if (200...299).contains(http.statusCode),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                successfulSourceCount += 1
+                tracks.append(contentsOf: parseChatGPTTracks(object))
+                blockedFeatures = stringArray(object["blocked_features"])
+            } else if [401, 403].contains(http.statusCode) {
+                sawSessionFailure = true
+            }
+        }
+
+        guard successfulSourceCount > 0 else {
+            if sawSessionFailure { throw UsageError.sessionExpired }
             throw UsageError.unexpectedResponse
         }
-        let windows = parseUsageWindows(object)
         return GPTUsage(
-            sessionPercent: windows.session?.percent,
-            sessionResetsAt: windows.session?.reset,
-            weeklyPercent: windows.weekly?.percent,
-            weeklyResetsAt: windows.weekly?.reset,
+            tracks: deduplicated(tracks),
+            blockedFeatures: blockedFeatures,
+            planType: planType,
             fetchedAt: Date()
         )
     }
@@ -100,12 +187,11 @@ enum UsageChecker {
                 path: "/models",
                 auth: auth,
                 cookieHeader: cookies
-              ) else { return fallbackModels }
+              ) else { return [] }
         guard let (data, response) = try? await perform(request),
               let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
-              let object = try? JSONSerialization.jsonObject(with: data) else { return fallbackModels }
-        let models = collectModels(object)
-        return models.isEmpty ? fallbackModels : models
+              let object = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        return parseAvailableModels(object)
     }
 
     private static func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
@@ -119,50 +205,123 @@ enum UsageChecker {
         switch http.statusCode { case 200...299: return; case 401, 403: throw UsageError.sessionExpired; default: throw UsageError.serverError(http.statusCode) }
     }
 
-    private static func parseUsageWindows(_ object: [String: Any]) -> (session: (percent: Int, reset: Date?)?, weekly: (percent: Int, reset: Date?)?) {
+    static func parseAgenticTracks(_ object: [String: Any]) -> [GPTUsageTrack] {
+        var tracks: [GPTUsageTrack] = []
         if let rateLimit = object["rate_limit"] as? [String: Any] {
-            let primary = usageWindow(rateLimit["primary_window"])
-            let secondary = usageWindow(rateLimit["secondary_window"])
-            let primarySeconds = windowSeconds(rateLimit["primary_window"])
-            let secondarySeconds = windowSeconds(rateLimit["secondary_window"])
-
-            if primarySeconds == 604_800, secondary == nil {
-                return (nil, primary)
-            }
-            if secondarySeconds == 18_000, primarySeconds == 604_800 {
-                return (secondary, primary)
-            }
-            return (primary, secondary)
+            tracks.append(contentsOf: parseRateLimitGroup(rateLimit, idPrefix: "codex", titlePrefix: "Codex / agentic"))
         }
-
-        // Keep a tolerant fallback for gradual backend rollouts while only
-        // accepting usage percentages actually returned by ChatGPT.
-        var candidates: [(String, Int, Date?)] = []
-        func walk(_ node: Any, path: String) {
-            if let dictionary = node as? [String: Any] {
-                let percent = numeric(dictionary["used_percent"])
-                    ?? numeric(dictionary["usage_percentage"])
-                    ?? numeric(dictionary["percent"])
-                let reset = date(dictionary["reset_at"] ?? dictionary["reset_time"] ?? dictionary["resets_at"])
-                if let percent { candidates.append((path.lowercased(), clampedPercent(percent), reset)) }
-                dictionary.forEach { walk($0.value, path: path + "." + $0.key) }
-            } else if let array = node as? [Any] { array.forEach { walk($0, path: path) } }
+        if let rateLimit = object["code_review_rate_limit"] as? [String: Any] {
+            tracks.append(contentsOf: parseRateLimitGroup(rateLimit, idPrefix: "code-review", titlePrefix: "Code review"))
         }
-        walk(object, path: "")
-        let session = candidates.first { $0.0.contains("primary") || $0.0.contains("session") || $0.0.contains("five_hour") || $0.0.contains("5h") }
-        let weekly = candidates.first { $0.0.contains("secondary") || $0.0.contains("week") || $0.0.contains("seven_day") || $0.0.contains("7d") }
-        return (session.map { ($0.1, $0.2) }, weekly.map { ($0.1, $0.2) })
+        if let credits = object["credits"] as? [String: Any] {
+            let unlimited = credits["unlimited"] as? Bool == true
+            let balance = string(credits["balance"]) ?? numeric(credits["balance"]).map { String(format: "%.2f", $0) }
+            tracks.append(GPTUsageTrack(
+                id: "codex-credits",
+                scope: .codex,
+                title: "Purchased credits",
+                usedPercent: nil,
+                remaining: nil,
+                limit: nil,
+                resetsAt: nil,
+                windowSeconds: nil,
+                isBlocked: !unlimited && numeric(credits["balance"]) == 0,
+                modelSlug: nil,
+                valueText: unlimited ? "Unlimited" : balance.map { "\($0) credits" }
+            ))
+        }
+        if let spendControl = object["spend_control"] as? [String: Any],
+           let reached = spendControl["reached"] as? Bool {
+            tracks.append(GPTUsageTrack(
+                id: "workspace-spend-control",
+                scope: .workspace,
+                title: "Workspace spend control",
+                usedPercent: nil,
+                remaining: nil,
+                limit: nil,
+                resetsAt: resetDate(spendControl),
+                windowSeconds: integer(spendControl["limit_window_seconds"] ?? spendControl["window_seconds"]),
+                isBlocked: reached,
+                modelSlug: nil,
+                valueText: reached ? "Limit reached" : "Available"
+            ))
+        }
+        return tracks
     }
 
-    private static func usageWindow(_ value: Any?) -> (percent: Int, reset: Date?)? {
-        guard let dictionary = value as? [String: Any],
-              let percent = numeric(dictionary["used_percent"] ?? dictionary["usage_percentage"] ?? dictionary["percent"]) else {
-            return nil
+    private static func parseRateLimitGroup(
+        _ rateLimit: [String: Any],
+        idPrefix: String,
+        titlePrefix: String
+    ) -> [GPTUsageTrack] {
+        [
+            ("primary", rateLimit["primary_window"]),
+            ("secondary", rateLimit["secondary_window"])
+        ].compactMap { name, value in
+            guard let dictionary = value as? [String: Any],
+                  let percent = numeric(dictionary["used_percent"] ?? dictionary["usage_percentage"] ?? dictionary["percent"]) else {
+                return nil
+            }
+            let seconds = windowSeconds(dictionary)
+            return GPTUsageTrack(
+                id: "\(idPrefix)-\(name)-\(seconds ?? 0)",
+                scope: .codex,
+                title: usageWindowTitle(prefix: titlePrefix, seconds: seconds),
+                usedPercent: clampedPercent(percent),
+                remaining: nil,
+                limit: nil,
+                resetsAt: resetDate(dictionary),
+                windowSeconds: seconds,
+                isBlocked: (rateLimit["limit_reached"] as? Bool) == true || percent >= 100,
+                modelSlug: nil
+            )
         }
-        return (
-            clampedPercent(percent),
-            date(dictionary["reset_at"] ?? dictionary["resets_at"] ?? dictionary["reset_time"])
-        )
+    }
+
+    static func parseChatGPTTracks(_ object: [String: Any]) -> [GPTUsageTrack] {
+        var tracks: [GPTUsageTrack] = []
+        if let limits = object["limits_progress"] as? [[String: Any]] {
+            for (index, limitObject) in limits.enumerated() {
+                guard let feature = string(limitObject["feature_name"] ?? limitObject["name"] ?? limitObject["feature"]) else { continue }
+                let remaining = integer(limitObject["remaining"] ?? limitObject["remaining_count"])
+                let total = integer(limitObject["limit"] ?? limitObject["total"] ?? limitObject["max"])
+                tracks.append(GPTUsageTrack(
+                    id: "feature-\(feature)-\(index)",
+                    scope: .chatGPTFeature,
+                    title: featureTitle(feature),
+                    usedPercent: usedPercent(remaining: remaining, limit: total, explicit: limitObject),
+                    remaining: remaining,
+                    limit: total,
+                    resetsAt: resetDate(limitObject),
+                    windowSeconds: integer(limitObject["limit_window_seconds"] ?? limitObject["window_seconds"]),
+                    isBlocked: (limitObject["blocked"] as? Bool) == true || remaining == 0,
+                    modelSlug: nil
+                ))
+            }
+        }
+
+        if let modelLimits = object["model_limits"] as? [[String: Any]] {
+            for (index, limitObject) in modelLimits.enumerated() {
+                guard let slug = string(limitObject["model_slug"] ?? limitObject["slug"] ?? limitObject["model"]) else { continue }
+                let remaining = integer(limitObject["remaining"] ?? limitObject["remaining_messages"] ?? limitObject["messages_remaining"])
+                let total = integer(limitObject["limit"] ?? limitObject["message_limit"] ?? limitObject["max_messages"])
+                tracks.append(GPTUsageTrack(
+                    id: "model-\(slug)-\(index)",
+                    scope: .chatGPTModel,
+                    title: "\(displayModelName(slug)) messages",
+                    usedPercent: usedPercent(remaining: remaining, limit: total, explicit: limitObject),
+                    remaining: remaining,
+                    limit: total,
+                    resetsAt: resetDate(limitObject),
+                    windowSeconds: integer(limitObject["limit_window_seconds"] ?? limitObject["window_seconds"]),
+                    isBlocked: (limitObject["blocked"] as? Bool) == true
+                        || (limitObject["limit_reached"] as? Bool) == true
+                        || remaining == 0,
+                    modelSlug: slug
+                ))
+            }
+        }
+        return tracks
     }
 
     private static func windowSeconds(_ value: Any?) -> Int? {
@@ -182,23 +341,92 @@ enum UsageChecker {
 
     private static func date(_ value: Any?) -> Date? {
         if let epoch = value as? TimeInterval { return Date(timeIntervalSince1970: epoch > 10_000_000_000 ? epoch / 1000 : epoch) }
-        if let text = value as? String { return ISO8601DateFormatter().date(from: text) }
+        if let text = value as? String {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+        }
         return nil
     }
 
-    private static func collectModels(_ value: Any) -> [String] {
-        var values = Set<String>()
-        func walk(_ node: Any) {
-            if let dictionary = node as? [String: Any] {
-                for key in ["slug", "model", "id"] {
-                    if let value = dictionary[key] as? String, value.lowercased().hasPrefix("gpt-") {
-                        values.insert(value)
-                    }
-                }
-                dictionary.values.forEach(walk)
-            } else if let array = node as? [Any] { array.forEach(walk) }
+    /// Backends have used `reset_after` for both an absolute ISO timestamp
+    /// and a relative number of seconds. Keep the two meanings distinct so a
+    /// duration never turns into a date near 1970.
+    private static func resetDate(_ object: [String: Any]) -> Date? {
+        if let absolute = object["reset_at"] ?? object["resets_at"] ?? object["reset_time"] {
+            return date(absolute)
         }
-        walk(value)
-        return values.sorted()
+        guard let after = object["reset_after"] ?? object["reset_after_seconds"] else { return nil }
+        if let seconds = numeric(after), seconds >= 0, seconds < 10_000_000 {
+            return Date().addingTimeInterval(seconds)
+        }
+        return date(after)
+    }
+
+    private static func integer(_ value: Any?) -> Int? { numeric(value).map { Int($0.rounded()) } }
+    private static func string(_ value: Any?) -> String? {
+        guard let text = value as? String else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    private static func stringArray(_ value: Any?) -> [String] {
+        (value as? [Any])?.compactMap { item in
+            string(item) ?? string((item as? [String: Any])?["feature_name"])
+        } ?? []
+    }
+    private static func usedPercent(remaining: Int?, limit: Int?, explicit: [String: Any]) -> Int? {
+        if let value = numeric(explicit["used_percent"] ?? explicit["usage_percentage"] ?? explicit["percent"]) {
+            return clampedPercent(value)
+        }
+        guard let remaining, let limit, limit > 0 else { return nil }
+        return clampedPercent(Double(limit - remaining) / Double(limit) * 100)
+    }
+    private static func deduplicated(_ tracks: [GPTUsageTrack]) -> [GPTUsageTrack] {
+        var seen = Set<String>()
+        return tracks.filter { seen.insert($0.id).inserted }
+    }
+    private static func usageWindowTitle(prefix: String, seconds: Int?) -> String {
+        switch seconds {
+        case 18_000: return "\(prefix) (5 hour)"
+        case 604_800: return "\(prefix) (7 day)"
+        case 2_592_000: return "\(prefix) (30 day)"
+        case let seconds?: return "\(prefix) (\(durationLabel(seconds)))"
+        case nil: return prefix
+        }
+    }
+    private static func durationLabel(_ seconds: Int) -> String {
+        if seconds % 604_800 == 0 { return "\(seconds / 604_800) day" }
+        if seconds % 3_600 == 0 { return "\(seconds / 3_600) hour" }
+        return "\(seconds / 60) min"
+    }
+    private static func featureTitle(_ raw: String) -> String {
+        let known = [
+            "deep_research": "Deep research",
+            "image_gen": "Image generation",
+            "file_upload": "File uploads",
+            "paste_text_to_file": "Paste to file",
+            "odyssey": "Agent mode",
+            "voice": "Voice"
+        ]
+        return known[raw.lowercased()] ?? raw.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+    private static func displayModelName(_ slug: String) -> String {
+        slug.replacingOccurrences(of: "-", with: " ").uppercased()
+    }
+
+    static func parseAvailableModels(_ value: Any) -> [String] {
+        guard let object = value as? [String: Any],
+              let models = object["models"] as? [[String: Any]] else { return [] }
+        var seen = Set<String>()
+        return models.compactMap { model in
+            guard model["enabled"] as? Bool != false,
+                  model["is_visible"] as? Bool != false,
+                  model["hidden"] as? Bool != true,
+                  let slug = model["slug"] as? String,
+                  !slug.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !slug.lowercased().contains("claude"),
+                  seen.insert(slug).inserted else { return nil }
+            return slug
+        }
     }
 }

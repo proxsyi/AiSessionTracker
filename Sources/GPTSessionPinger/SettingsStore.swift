@@ -1,7 +1,7 @@
 import Foundation
 
 extension Notification.Name {
-    static let commandUShortcutSettingChanged = Notification.Name("commandUShortcutSettingChanged")
+    static let commandIShortcutSettingChanged = Notification.Name("commandIShortcutSettingChanged")
 }
 
 enum CountdownFocus: String, CaseIterable, Identifiable {
@@ -36,7 +36,7 @@ final class SettingsStore: ObservableObject {
         static let notifySessionAvailable = "notifySessionAvailable"
         static let notifySessionStarted = "notifySessionStarted"
         static let autoStartAvailableSessions = "autoStartAvailableSessions"
-        static let enableCommandUShortcut = "enableCommandUShortcut"
+        static let enableCommandIShortcut = "enableCommandIShortcut"
         static let preferClearGlass = "preferClearGlass"
         static let showNextPossibleCountdown = "showNextPossibleCountdown"
         static let showScheduledCountdown = "showScheduledCountdown"
@@ -52,6 +52,7 @@ final class SettingsStore: ObservableObject {
         static let autoUpdateEnabled = "autoUpdateEnabled"
         static let keychainOwnershipMigrationVersion = "keychainOwnershipMigrationVersion"
         static let proxsyiDefaultsMigrated = "proxsyiDefaultsMigrated"
+        static let accountPlanType = "accountPlanType"
     }
 
     private static let currentKeychainOwnershipMigrationVersion = 2
@@ -86,10 +87,10 @@ final class SettingsStore: ObservableObject {
     @Published var autoStartAvailableSessions: Bool {
         didSet { UserDefaults.standard.set(autoStartAvailableSessions, forKey: Keys.autoStartAvailableSessions) }
     }
-    @Published var enableCommandUShortcut: Bool {
+    @Published var enableCommandIShortcut: Bool {
         didSet {
-            UserDefaults.standard.set(enableCommandUShortcut, forKey: Keys.enableCommandUShortcut)
-            NotificationCenter.default.post(name: .commandUShortcutSettingChanged, object: nil)
+            UserDefaults.standard.set(enableCommandIShortcut, forKey: Keys.enableCommandIShortcut)
+            NotificationCenter.default.post(name: .commandIShortcutSettingChanged, object: nil)
         }
     }
     @Published var preferClearGlass: Bool {
@@ -167,6 +168,9 @@ final class SettingsStore: ObservableObject {
             }
         }
     }
+    @Published var accountPlanType: String {
+        didSet { UserDefaults.standard.set(accountPlanType, forKey: Keys.accountPlanType) }
+    }
 
     init() {
         let defaults = UserDefaults.standard
@@ -192,7 +196,7 @@ final class SettingsStore: ObservableObject {
         notifySessionAvailable = defaults.object(forKey: Keys.notifySessionAvailable) == nil ? true : defaults.bool(forKey: Keys.notifySessionAvailable)
         notifySessionStarted = defaults.object(forKey: Keys.notifySessionStarted) == nil ? true : defaults.bool(forKey: Keys.notifySessionStarted)
         autoStartAvailableSessions = defaults.bool(forKey: Keys.autoStartAvailableSessions)
-        enableCommandUShortcut = defaults.object(forKey: Keys.enableCommandUShortcut) == nil ? true : defaults.bool(forKey: Keys.enableCommandUShortcut)
+        enableCommandIShortcut = defaults.object(forKey: Keys.enableCommandIShortcut) == nil ? true : defaults.bool(forKey: Keys.enableCommandIShortcut)
         preferClearGlass = defaults.object(forKey: Keys.preferClearGlass) == nil ? true : defaults.bool(forKey: Keys.preferClearGlass)
         showNextPossibleCountdown = defaults.object(forKey: Keys.showNextPossibleCountdown) == nil ? true : defaults.bool(forKey: Keys.showNextPossibleCountdown)
         showScheduledCountdown = defaults.object(forKey: Keys.showScheduledCountdown) == nil ? true : defaults.bool(forKey: Keys.showScheduledCountdown)
@@ -218,6 +222,7 @@ final class SettingsStore: ObservableObject {
         let storedCookieHeader = KeychainStore.load(account: "cookieHeader") ?? ""
         sessionKey = storedSessionKey
         cookieHeader = storedCookieHeader
+        accountPlanType = defaults.string(forKey: Keys.accountPlanType) ?? ChatGPTWebSession.planType(from: storedSessionKey) ?? ""
         // Re-create legacy keychain items under the current stable signing
         // identity. Versioning this migration lets an older, incomplete
         // migration be repaired once without repeating it every launch.
@@ -255,5 +260,13 @@ final class SettingsStore: ObservableObject {
         guard sessionKey.count > 4 else { return sessionKey.isEmpty ? "" : "••••" }
         let suffix = sessionKey.suffix(4)
         return "••••••••" + suffix
+    }
+
+    func clearChatGPTLogin() {
+        sessionKey = ""
+        cookieHeader = ""
+        organizationID = ""
+        accountPlanType = ""
+        conversationID = ""
     }
 }

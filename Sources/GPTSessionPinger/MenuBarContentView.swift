@@ -103,21 +103,16 @@ struct MenuBarContentView: View {
 
     private var usageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "ChatGPT usage")
+            SectionHeader(text: usageHeader)
 
-            if settings.showSessionBar {
-                usageRow(
-                    title: "Session (5 hour)",
-                    percent: appState.usage?.sessionPercent,
-                    resetText: sessionResetText
-                )
-            }
-            if settings.showWeeklyBar {
-                usageRow(
-                    title: "Weekly (7 day)",
-                    percent: appState.usage?.weeklyPercent,
-                    resetText: weeklyResetText
-                )
+            if visibleUsageTracks.isEmpty {
+                Text(appState.usage == nil ? "No usage data yet" : "This account did not report a trackable counter.")
+                    .font(.system(size: 11))
+                    .foregroundColor(GPTTheme.textSecondary)
+            } else {
+                ForEach(visibleUsageTracks) { track in
+                    usageRow(track)
+                }
             }
             if let error = appState.usageError {
                 Text(error)
@@ -145,28 +140,51 @@ struct MenuBarContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func usageRow(title: String, percent: Int?, resetText: String?, missingText: String = "No data yet") -> some View {
+    private var usageHeader: String {
+        let plan = appState.usage?.planType ?? settings.accountPlanType
+        guard !plan.isEmpty else { return "ChatGPT usage" }
+        return "ChatGPT usage · \(plan.replacingOccurrences(of: "_", with: " ").capitalized)"
+    }
+
+    private var visibleUsageTracks: [GPTUsageTrack] {
+        guard let tracks = appState.usage?.tracks else { return [] }
+        return tracks.filter { track in
+            if track.scope == .codex && track.windowSeconds == 18_000 { return settings.showSessionBar }
+            if track.scope == .codex && track.windowSeconds == 604_800 { return settings.showWeeklyBar }
+            return true
+        }
+    }
+
+    private func usageRow(_ track: GPTUsageTrack) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title)
+                Text(track.title)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(GPTTheme.textPrimary)
                 Spacer()
-                Text(percent.map { "\($0)%" } ?? "--")
+                Text(track.usedPercent.map { "\($0)%" } ?? track.valueText ?? track.remaining.map { "\($0) left" } ?? "--")
                     .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundColor(usageBarColor(percent: percent))
+                    .foregroundColor(track.isBlocked ? .red : usageBarColor(percent: track.usedPercent))
             }
-            UsageBar(percent: percent, color: usageBarColor(percent: percent))
-            if let resetText {
-                Text(resetText)
-                    .font(.system(size: 11))
-                    .foregroundColor(GPTTheme.textSecondary)
-            } else if percent == nil {
-                Text(missingText)
+            if track.usedPercent != nil {
+                UsageBar(percent: track.usedPercent, color: usageBarColor(percent: track.usedPercent))
+            }
+            if let detail = usageDetail(track) {
+                Text(detail)
                     .font(.system(size: 11))
                     .foregroundColor(GPTTheme.textSecondary)
             }
         }
+    }
+
+    private func usageDetail(_ track: GPTUsageTrack) -> String? {
+        var parts: [String] = []
+        if let remainingText = track.remainingText { parts.append(remainingText) }
+        if let reset = track.resetsAt {
+            parts.append("Resets \(reset.formatted(date: reset.timeIntervalSinceNow > 86_400 ? .abbreviated : .omitted, time: .shortened))")
+        }
+        if track.isBlocked { parts.append("Currently blocked") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     private func usageBarColor(percent: Int?) -> Color {
@@ -230,18 +248,6 @@ struct MenuBarContentView: View {
         return "\(minutes / 60)h ago"
     }
 
-    private var sessionResetText: String? {
-        guard let date = appState.usage?.sessionResetsAt else { return nil }
-        return "Resets at \(date.formatted(date: .omitted, time: .shortened))"
-    }
-
-    private var weeklyResetText: String? {
-        guard let date = appState.usage?.weeklyResetsAt else { return nil }
-        let day = date.formatted(.dateTime.day().month(.abbreviated).year())
-        let time = date.formatted(date: .omitted, time: .shortened)
-        return "Resets on \(day) at \(time)"
-    }
-
     private var lastUpdatedText: String {
         guard let fetched = appState.usage?.fetchedAt else { return "Not updated yet" }
         return "Last updated: \(fetched.formatted(date: .omitted, time: .shortened))"
@@ -270,11 +276,17 @@ struct MenuBarContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var sessionAvailability: SessionAvailability {
+        SessionAvailabilityResolver.resolve(
+            usage: appState.usage,
+            model: settings.model,
+            availableModels: appState.availableModels,
+            now: now
+        )
+    }
+
     private var nextPossibleSessionDate: Date? {
-        if let reset = appState.usage?.sessionResetsAt,
-           reset > now {
-            return reset
-        }
+        if case .waiting(let reset) = sessionAvailability { return reset }
         return nil
     }
 
@@ -289,16 +301,20 @@ struct MenuBarContentView: View {
         guard settings.showNextPossibleCountdown || settings.showScheduledCountdown else {
             return "Session countdowns"
         }
-        return effectiveCountdownFocus == .nextPossible
-            ? "Next possible session in"
-            : "Next scheduled session in"
+        if effectiveCountdownFocus == .scheduled { return "Next scheduled session in" }
+        return nextPossibleSessionDate == nil ? "Next possible session" : "Next possible session in"
     }
 
     private var primaryCountdownText: String {
         guard settings.showNextPossibleCountdown || settings.showScheduledCountdown else { return "Hidden" }
-        let date = effectiveCountdownFocus == .nextPossible
-            ? nextPossibleSessionDate
-            : appState.nextFireDate
+        if effectiveCountdownFocus == .nextPossible {
+            switch sessionAvailability {
+            case .availableNow: return "Available now"
+            case .unavailable: return "Unavailable"
+            case .waiting(let reset): return durationText(until: reset)
+            }
+        }
+        let date = appState.nextFireDate
         guard let date else { return "Unavailable" }
         return durationText(until: date)
     }
@@ -310,11 +326,16 @@ struct MenuBarContentView: View {
             let time = scheduled.formatted(date: .omitted, time: .shortened)
             return "Scheduled session in \(durationText(until: scheduled)) · \(time)"
         }
-        if effectiveCountdownFocus == .scheduled,
-           settings.showNextPossibleCountdown,
-           let possible = nextPossibleSessionDate {
-            let time = possible.formatted(date: .omitted, time: .shortened)
-            return "Next possible session in \(durationText(until: possible)) · \(time)"
+        if effectiveCountdownFocus == .scheduled, settings.showNextPossibleCountdown {
+            switch sessionAvailability {
+            case .availableNow:
+                return "Next possible session: Available now"
+            case .waiting(let possible):
+                let time = possible.formatted(date: .omitted, time: .shortened)
+                return "Next possible session in \(durationText(until: possible)) · \(time)"
+            case .unavailable:
+                return nil
+            }
         }
         return nil
     }

@@ -16,9 +16,13 @@ final class ChatGPTBrowserMessenger {
         message: String,
         model: String,
         conversationID: String?,
+        previousNodeID: String?,
+        auth: ChatGPTAuthSession,
         cookieHeader: String,
         timeoutSeconds: TimeInterval
     ) async throws -> PingOutcome {
+        let previouslyFrontmostApp = NSWorkspace.shared.frontmostApplication
+        let previouslyKeyWindow = NSApp.keyWindow
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 1120, height: 780), configuration: configuration)
@@ -53,6 +57,11 @@ final class ChatGPTBrowserMessenger {
             webView.stopLoading()
             window.orderOut(nil)
             window.close()
+            if previouslyFrontmostApp?.bundleIdentifier == Bundle.main.bundleIdentifier {
+                previouslyKeyWindow?.makeKeyAndOrderFront(nil)
+            } else {
+                previouslyFrontmostApp?.activate(options: [.activateIgnoringOtherApps])
+            }
         }
 
         await seedCookies(cookieHeader, into: configuration.websiteDataStore.httpCookieStore)
@@ -90,7 +99,33 @@ final class ChatGPTBrowserMessenger {
 
         var lastSnapshot = baseline
         var stableReplyPolls = 0
+        var lastBackendError = "none"
         while Date() < deadline {
+            let currentConversationID = conversationIDFromURL(webView.url) ?? trimmedConversationID
+            if !currentConversationID.isEmpty {
+                do {
+                    if let turn = try await backendAssistantTurn(
+                        conversationID: currentConversationID,
+                        previousNodeID: previousNodeID,
+                        auth: auth,
+                        cookies: cookieHeader
+                    ), turn.isComplete {
+                        return PingOutcome(
+                            conversationID: currentConversationID,
+                            replyText: turn.text,
+                            matchedExpected: true
+                        )
+                    }
+                } catch let error as PingError {
+                    switch error {
+                    case .sessionExpired, .rateLimited:
+                        throw error
+                    default:
+                        lastBackendError = error.localizedDescription
+                    }
+                }
+            }
+
             let snapshot = try await assistantSnapshot(webView)
             if snapshot.count > baseline.count, !snapshot.text.isEmpty {
                 if snapshot.text == lastSnapshot.text {
@@ -118,7 +153,49 @@ final class ChatGPTBrowserMessenger {
         let path = webView.url?.path ?? "unknown"
         let alert = lastSnapshot.alertText.isEmpty ? "none" : lastSnapshot.alertText
         throw PingError.unexpectedResponse(
-            "ChatGPT browser timed out (page \(path), assistant turns \(baseline.count)→\(lastSnapshot.count), user turns \(baseline.userCount)→\(lastSnapshot.userCount), reply characters \(lastSnapshot.text.count), page alert: \(alert))."
+            "ChatGPT browser timed out (page \(path), assistant turns \(baseline.count)→\(lastSnapshot.count), user turns \(baseline.userCount)→\(lastSnapshot.userCount), reply characters \(lastSnapshot.text.count), page alert: \(alert), conversation check: \(lastBackendError))."
+        )
+    }
+
+    private func backendAssistantTurn(
+        conversationID: String,
+        previousNodeID: String?,
+        auth: ChatGPTAuthSession,
+        cookies: String
+    ) async throws -> ChatGPTAssistantTurn? {
+        guard let request = ChatGPTWebSession.makeBackendRequest(
+            path: "/conversation/\(conversationID)",
+            auth: auth,
+            cookieHeader: cookies
+        ) else { throw PingError.invalidURL }
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError {
+            throw PingError.network(error)
+        } catch {
+            throw PingError.unknown(error)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw PingError.unexpectedResponse("No HTTP response while checking the ChatGPT reply.")
+        }
+        switch http.statusCode {
+        case 200...299:
+            break
+        case 401:
+            throw PingError.sessionExpired
+        case 429:
+            throw PingError.rateLimited
+        default:
+            throw PingError.serverError(http.statusCode, "ChatGPT could not read the pinger conversation.")
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw PingError.unexpectedResponse("ChatGPT returned an unreadable conversation while checking the reply.")
+        }
+        return ChatGPTConversationParser.newestAssistantTurn(
+            in: object,
+            stoppingAt: previousNodeID
         )
     }
 

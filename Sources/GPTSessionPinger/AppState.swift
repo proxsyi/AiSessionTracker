@@ -452,20 +452,20 @@ final class AppState: ObservableObject {
     /// Try the user's selected model first, then known ChatGPT fallbacks.
     private func modelCandidates() -> [String] {
         let selected = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackPool = (availableModels + UsageChecker.fallbackModels)
-            .sorted { modelRank($0) < modelRank($1) }
+        let fallbackPool = availableModels.isEmpty ? UsageChecker.fallbackModels : availableModels
         var candidates = selected.isEmpty ? [] : [selected]
         for model in fallbackPool where !candidates.contains(model) {
             candidates.append(model)
         }
-        return candidates
+        let allowed = candidates.filter { !isKnownBlockedModel($0) }
+        return allowed.isEmpty ? candidates : allowed
     }
 
-    private func modelRank(_ slug: String) -> Int {
-        if slug == "auto" { return 0 }
-        if slug.contains("terra") { return 1 }
-        if slug.contains("chat-latest") { return 2 }
-        return 3
+    private func isKnownBlockedModel(_ model: String) -> Bool {
+        if usage?.modelTrack(for: model)?.isBlocked == true { return true }
+        return usage?.blockedFeatures.contains(where: {
+            $0.caseInsensitiveCompare(model) == .orderedSame
+        }) == true
     }
 
     /// True when the server rejected the request in a way that points at the
@@ -547,9 +547,32 @@ final class AppState: ObservableObject {
             cookieHeader: settings.effectiveCookieHeader
         )
         if !models.isEmpty {
-            availableModels = models.sorted { modelRank($0) < modelRank($1) }
+            availableModels = models
+            if !models.contains(settings.model) {
+                settings.model = preferredModel(in: models)
+            }
         }
         isRefreshingUsage = false
+    }
+
+    func clearAccountData() {
+        usage = nil
+        usageError = nil
+        availableModels = []
+        activeModel = nil
+        sessionAvailabilityBaselined = false
+        usageBaselined = false
+        notifiedSessionThresholds.removeAll()
+        notifiedWeeklyThresholds.removeAll()
+        lastSessionResetsAt = nil
+        lastWeeklyResetsAt = nil
+    }
+
+    private func preferredModel(in models: [String]) -> String {
+        for exact in ["gpt-5-4-t-mini", "gpt-5-4-mini"] where models.contains(exact) {
+            return exact
+        }
+        return models.first(where: { $0.lowercased().contains("mini") }) ?? models[0]
     }
 
     // MARK: - Usage threshold & service status notifications
@@ -560,25 +583,28 @@ final class AppState: ObservableObject {
         let wasBaselined = sessionAvailabilityBaselined
         defer { sessionAvailabilityBaselined = true }
 
+        let previousAvailability = SessionAvailabilityResolver.resolve(
+            usage: previous,
+            model: settings.model,
+            availableModels: availableModels,
+            now: Date()
+        )
+        let currentAvailability = SessionAvailabilityResolver.resolve(
+            usage: current,
+            model: settings.model,
+            availableModels: availableModels,
+            now: Date()
+        )
         let becameAvailable = wasBaselined
-            && (previous?.sessionPercent ?? 0) >= 100
-            && (current.sessionPercent ?? 100) < 100
-        let resetRolledForward: Bool
-        if wasBaselined,
-           let oldReset = previous?.sessionResetsAt,
-           let newReset = current.sessionResetsAt {
-            resetRolledForward = oldReset <= Date()
-                && newReset.timeIntervalSince(oldReset) > resetJitterTolerance
-        } else {
-            resetRolledForward = false
-        }
+            && previousAvailability != .availableNow
+            && currentAvailability == .availableNow
 
-        if becameAvailable || resetRolledForward {
+        if becameAvailable {
             if settings.notifySessionAvailable {
                 sendNotification(
                     identifier: "session-available",
-                    title: "A new ChatGPT session is available",
-                    body: "Your previous 5-hour window reset."
+                    title: "ChatGPT model is available",
+                    body: "\(settings.model) can accept a new ping."
                 )
             }
         }
@@ -599,7 +625,12 @@ final class AppState: ObservableObject {
             Task { [weak self] in await self?.refreshUsage() }
             return
         }
-        guard let sessionPercent = usage.sessionPercent, sessionPercent < 100 else { return }
+        guard SessionAvailabilityResolver.resolve(
+            usage: usage,
+            model: settings.model,
+            availableModels: availableModels,
+            now: now
+        ) == .availableNow else { return }
 
         if let nextScheduled = scheduler.nextFireDate(after: now, slots: settings.scheduleSlots),
            nextScheduled.timeIntervalSince(now) <= scheduledStartProtectionWindow {
@@ -695,8 +726,8 @@ final class AppState: ObservableObject {
                 let reset = fetched.sessionResetsAt.map { " Resets at \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
                 sendNotification(
                     identifier: "usage-session-\(threshold)",
-                    title: "Session usage reached \(threshold)%",
-                    body: "Your 5-hour session window is at \(percent)%.\(reset)"
+                    title: "Codex usage reached \(threshold)%",
+                    body: "Your shared agentic 5-hour window is at \(percent)%.\(reset)"
                 )
             }
         }
@@ -705,8 +736,8 @@ final class AppState: ObservableObject {
                 let reset = fetched.weeklyResetsAt.map { " Resets \($0.formatted(date: .abbreviated, time: .shortened))." } ?? ""
                 sendNotification(
                     identifier: "usage-weekly-\(threshold)",
-                    title: "Weekly usage reached \(threshold)%",
-                    body: "Your 7-day window is at \(percent)%.\(reset)"
+                    title: "Codex weekly usage reached \(threshold)%",
+                    body: "Your shared agentic 7-day window is at \(percent)%.\(reset)"
                 )
             }
         }
