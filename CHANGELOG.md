@@ -5,6 +5,7 @@
 - Made Claude, Codex, and ChatGPT dashboards use the same card hierarchy, with service status and refresh in their own card.
 - Added per-dashboard visibility toggles and labeled Claude/Codex menu-bar meters.
 - Gave the combined app its own update feed and blocked any updater from replacing an app with a different bundle identifier.
+- Isolated the combined app's privileged wake helper and diagnostics from the standalone Claude app.
 
 ## v0.1.1 (combined branch)
 

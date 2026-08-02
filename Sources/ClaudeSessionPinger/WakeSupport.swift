@@ -44,7 +44,7 @@ enum WakeSupportError: LocalizedError {
 /// operations and never executes caller-supplied shell commands.
 enum WakeSupport {
     static let helperVersion = "2"
-    static let helperName = "com.proxsyi.claudesessionpinger.wake-helper"
+    static let helperName = "com.proxsyi.sessiontracker.wake-helper"
     static let installedHelperURL = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/\(helperName)")
     static let wakeLeadTime: TimeInterval = 5
     static let wakeHoldDuration: Int = 120
@@ -105,7 +105,7 @@ enum WakeSupport {
             set sourcePath to item 1 of argv
             set destinationPath to item 2 of argv
             set allowedUID to item 3 of argv
-            set supportPath to "/Library/Application Support/SessionPinger"
+            set supportPath to "/Library/Application Support/SessionTracker"
             set commandText to "/bin/mkdir -p " & quoted form of supportPath & " /Library/PrivilegedHelperTools && /usr/bin/install -o root -g wheel -m 4755 " & quoted form of sourcePath & " " & quoted form of destinationPath & " && /usr/bin/xattr -c " & quoted form of destinationPath & " && /usr/bin/printf '%s\\n' " & quoted form of allowedUID & " > " & quoted form of (supportPath & "/allowed_uid") & " && /usr/sbin/chown root:wheel " & quoted form of (supportPath & "/allowed_uid") & " && /bin/chmod 600 " & quoted form of (supportPath & "/allowed_uid")
             do shell script commandText with administrator privileges
         end run
@@ -276,7 +276,7 @@ enum WakeSupport {
     static func appendDiagnostic(_ message: String) {
         let manager = FileManager.default
         guard let appSupport = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
-        let folder = appSupport.appendingPathComponent("ClaudeSessionPinger", isDirectory: true)
+        let folder = appSupport.appendingPathComponent("SessionTracker", isDirectory: true)
         let file = folder.appendingPathComponent("wake-events.log")
         try? manager.createDirectory(at: folder, withIntermediateDirectories: true)
         let formatter = ISO8601DateFormatter()

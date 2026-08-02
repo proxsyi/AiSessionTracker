@@ -11,8 +11,8 @@
 #include <unistd.h>
 
 #define HELPER_VERSION "2"
-#define OWNER_IDENTIFIER "com.proxsyi.claudesessionpinger"
-#define ALLOWED_UID_PATH "/Library/Application Support/SessionPinger/allowed_uid"
+#define OWNER_IDENTIFIER "com.proxsyi.sessiontracker"
+#define ALLOWED_UID_PATH "/Library/Application Support/SessionTracker/allowed_uid"
 
 static void print_usage(void) {
     fprintf(stderr, "usage: wake-helper version | schedule <unix-seconds> | cancel <unix-seconds> | hold <seconds> | sleep\n");
