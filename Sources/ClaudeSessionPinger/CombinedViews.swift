@@ -178,24 +178,27 @@ struct CombinedSettingsView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if selection.selectedTab == .claude {
-                SettingsView(
-                    topLeadingInset: 188,
-                    saveOnDisappear: true,
-                    frameWidth: 500,
-                    frameHeight: 640,
-                    showsUpdateControls: false,
-                    serviceVisibility: $selection.claudeVisible,
-                    serviceDisplayName: "Claude"
-                )
-            } else {
-                GPTCombinedSettingsContent(
-                    feature: gptFeature,
-                    tab: selection.selectedTab == .codex ? .codex : .chatGPT,
-                    topLeadingInset: 188,
-                    serviceVisibility: selection.selectedTab == .codex ? $selection.codexVisible : $selection.chatGPTVisible
-                )
+            Group {
+                if selection.selectedTab == .claude {
+                    SettingsView(
+                        topLeadingInset: 0,
+                        saveOnDisappear: true,
+                        frameWidth: 500,
+                        frameHeight: 640,
+                        showsUpdateControls: false,
+                        serviceVisibility: $selection.claudeVisible,
+                        serviceDisplayName: "Claude"
+                    )
+                } else {
+                    GPTCombinedSettingsContent(
+                        feature: gptFeature,
+                        tab: selection.selectedTab == .codex ? .codex : .chatGPT,
+                        topLeadingInset: 0,
+                        serviceVisibility: selection.selectedTab == .codex ? $selection.codexVisible : $selection.chatGPTVisible
+                    )
+                }
             }
+            .padding(.top, 52)
 
             Picker("Settings service", selection: $selection.selectedTab) {
                 ForEach(CombinedServiceTab.allCases) { tab in
@@ -204,18 +207,11 @@ struct CombinedSettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 180, height: 34)
-            .padding(.leading, 8)
-            .padding(.top, 8)
-
-            Text("Turn off a dashboard to remove its tab and menu-bar meter. At least one dashboard stays visible.")
-                .font(.system(size: 9))
-                .foregroundStyle(ClaudeTheme.textSecondary)
-                .frame(width: 180, alignment: .leading)
-                .padding(.leading, 8)
-                .padding(.top, 49)
+            .frame(width: 484, height: 34)
+            .padding(8)
         }
-        .frame(width: 500, height: 640)
+        .frame(width: 500, height: 700)
+        .background(WindowGlassBackground(clearGlass: true).ignoresSafeArea())
         .onAppear {
             gptFeature.configureWindowActions(
                 close: { appState.closeSettingsWindow?() },
