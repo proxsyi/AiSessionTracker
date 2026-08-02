@@ -64,10 +64,12 @@ final class AppState: ObservableObject {
     private var automaticWakePingTask: Task<Void, Never>?
     private var wakeSyncGeneration = 0
     private let wakeScheduleCoordinator = WakeScheduleCoordinator()
+    private let updatesEnabled: Bool
 
-    init(settings: SettingsStore, stats: StatsStore) {
+    init(settings: SettingsStore, stats: StatsStore, updatesEnabled: Bool = true) {
         self.settings = settings
         self.stats = stats
+        self.updatesEnabled = updatesEnabled
         scheduler.onFire = { [weak self] in
             Task { await self?.runScheduledPing() }
         }
@@ -80,7 +82,7 @@ final class AppState: ObservableObject {
             object: nil
         )
         NotificationCenter.default.addObserver(self, selector: #selector(handleTimeZoneChange), name: NSNotification.Name.NSSystemTimeZoneDidChange, object: nil)
-        scheduleUpdateChecks()
+        if updatesEnabled { scheduleUpdateChecks() }
         scheduleUsageRefreshes()
     }
 
@@ -750,6 +752,7 @@ final class AppState: ObservableObject {
     private var autoUpdateAttemptedVersions: Set<String> = []
 
     func checkForUpdates() async {
+        guard updatesEnabled else { return }
         guard !isCheckingForUpdates else { return }
         isCheckingForUpdates = true
         updateCheckError = nil

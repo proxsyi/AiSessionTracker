@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.0 (combined branch)
+
+- Combined the complete Claude Session Pinger and GPT Usage Tracker into one separately identified, Apple-signed Session Tracker app.
+- Added three top-level dashboards—Claude, Codex, and ChatGPT—with settings routed from the selected dashboard.
+- Added a Claude/GPT settings selector to the left of the existing General, Usage, Alerts, and App sections.
+- Added a dual usage symbol: the inner star follows Claude session usage and the outer ring follows Codex weekly usage, with independent threshold colors.
+- Preserved separate Claude and GPT preferences, Keychain credentials, usage history, service checks, alerts, and shortcuts; Command-U selects Claude and Command-I selects GPT.
+- Disabled the standalone Claude/GPT update feeds inside the combined build so it cannot accidentally install either standalone product over itself.
+
 ## v1.16.2
 
 - Ported the verified GPT menu-shortcut lifecycle to Command-U: one activation per physical press, activation-safe presentation, key-up protection, and normal outside-click and Escape dismissal.

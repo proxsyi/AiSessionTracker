@@ -13,15 +13,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
-TAG="v${VERSION}"
+TAG="combined-v${VERSION}"
 
 echo "Releasing ${TAG}..."
 
 ./Scripts/build_app.sh
 
-ASSET_NAME="ClaudeSessionPinger.app.zip"
+ASSET_NAME="SessionTracker.app.zip"
 rm -f "dist/${ASSET_NAME}"
-ditto -c -k --sequesterRsrc --keepParent "dist/Session Pinger.app" "dist/${ASSET_NAME}"
+ditto -c -k --sequesterRsrc --keepParent "dist/Session Tracker.app" "dist/${ASSET_NAME}"
 
 NOTES=$(awk "/^## v${VERSION}/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md)
 if [ -z "$NOTES" ]; then

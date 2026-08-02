@@ -1,28 +1,17 @@
 import AppKit
-import GPTTrackerFeature
 import SwiftUI
 
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let settings: SettingsStore
-    private let stats: StatsStore
+    private let history: UsageHistoryStore
     private let appState: AppState
-    private let gptFeature: GPTFeatureState
-    private let selection: CombinedSelectionStore
 
-    init(
-        settings: SettingsStore,
-        stats: StatsStore,
-        appState: AppState,
-        gptFeature: GPTFeatureState,
-        selection: CombinedSelectionStore
-    ) {
+    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState) {
         self.settings = settings
-        self.stats = stats
+        self.history = history
         self.appState = appState
-        self.gptFeature = gptFeature
-        self.selection = selection
         super.init()
         appState.requestShowSettings = { [weak self] in
             self?.show()
@@ -64,11 +53,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let rootView = CombinedSettingsView(gptFeature: gptFeature)
+        let rootView = SettingsView()
             .environmentObject(settings)
-            .environmentObject(stats)
+            .environmentObject(history)
             .environmentObject(appState)
-            .environmentObject(selection)
         let hosting = NSHostingController(rootView: rootView)
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "Settings"
@@ -84,7 +72,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         newWindow.titlebarAppearsTransparent = true
         newWindow.isOpaque = false
         newWindow.backgroundColor = .clear
-        newWindow.minSize = NSSize(width: 500, height: 640)
+        newWindow.minSize = NSSize(width: 380, height: 420)
         newWindow.isReleasedWhenClosed = false
         newWindow.delegate = self
         newWindow.center()

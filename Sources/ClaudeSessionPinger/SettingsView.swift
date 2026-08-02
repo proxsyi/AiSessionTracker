@@ -23,6 +23,11 @@ struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var stats: StatsStore
+    let topLeadingInset: CGFloat
+    let saveOnDisappear: Bool
+    let frameWidth: CGFloat
+    let frameHeight: CGFloat
+    let showsUpdateControls: Bool
 
     @State private var sessionKeyInput = ""
     @State private var organizationID = ""
@@ -56,10 +61,25 @@ struct SettingsView: View {
     @State private var isFetchingOrganization = false
     @State private var showManualKeys = false
 
+    init(
+        topLeadingInset: CGFloat = 0,
+        saveOnDisappear: Bool = false,
+        frameWidth: CGFloat = 460,
+        frameHeight: CGFloat = 600,
+        showsUpdateControls: Bool = true
+    ) {
+        self.topLeadingInset = topLeadingInset
+        self.saveOnDisappear = saveOnDisappear
+        self.frameWidth = frameWidth
+        self.frameHeight = frameHeight
+        self.showsUpdateControls = showsUpdateControls
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             settingsTabBar
-                .padding(.horizontal, 8)
+                .padding(.leading, 8 + topLeadingInset)
+                .padding(.trailing, 8)
                 .padding(.vertical, 8)
 
             Divider()
@@ -77,7 +97,7 @@ struct SettingsView: View {
                 .background(WindowGlassBackground(clearGlass: preferClearGlass))
         }
         .environment(\.claudeClearGlass, preferClearGlass)
-        .frame(width: 460, height: 600)
+        .frame(width: frameWidth, height: frameHeight)
         .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
         .onAppear {
             loadCurrentValues()
@@ -87,6 +107,7 @@ struct SettingsView: View {
             }
         }
         .onDisappear {
+            if saveOnDisappear { save(closeWindow: false) }
             appState.requestSaveAndCloseSettings = nil
         }
         .sheet(isPresented: $showingLogin) {
@@ -187,7 +208,9 @@ struct SettingsView: View {
                 notificationsSection.padding(14).glassPanel()
             case .app:
                 appSection.padding(14).glassPanel()
-                updatesSection.padding(14).glassPanel()
+                if showsUpdateControls {
+                    updatesSection.padding(14).glassPanel()
+                }
             }
         }
         .claudeGlassContainer()
@@ -747,7 +770,7 @@ struct SettingsView: View {
         testResult = nil
     }
 
-    private func save(showPopoverAfterClose: Bool = false) {
+    private func save(showPopoverAfterClose: Bool = false, closeWindow: Bool = true) {
         guard scheduleValidationMessage == nil else {
             withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .general }
             return
@@ -786,7 +809,7 @@ struct SettingsView: View {
         LoginItemManager.setEnabled(launchAtLogin)
         appState.rescheduleTimer()
         appState.startAvailableSessionIfNeeded()
-        appState.closeSettingsWindow?()
+        if closeWindow { appState.closeSettingsWindow?() }
         if showPopoverAfterClose {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 appState.requestTogglePopover?()

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="Session Pinger"
+APP_NAME="Session Tracker"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -14,13 +14,13 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 
 swift build -c release
 
-# Claude and GPT are maintained on separate branches in this shared repo.
-# Replace only the Claude product so building one app never removes the other.
+# The combined tracker is a third, separately identified product. Building it
+# never removes either standalone app from dist or /Applications.
 rm -rf "${DIST_APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
-cp "${BUILD_DIR}/ClaudeSessionPinger" "${APP_DIR}/Contents/MacOS/ClaudeSessionPinger"
+cp "${BUILD_DIR}/CombinedSessionTracker" "${APP_DIR}/Contents/MacOS/CombinedSessionTracker"
 cp "${BUILD_DIR}/SessionPingerWakeHelper" "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
 chmod 755 "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
 cp "Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"

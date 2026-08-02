@@ -1,7 +1,6 @@
 import AppKit
-import SwiftUI
 import Combine
-import GPTTrackerFeature
+import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject, NSPopoverDelegate {
@@ -9,9 +8,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private let popover: NSPopover
     private var cancellables = Set<AnyCancellable>()
     private let appState: AppState
-    private let gptFeature: GPTFeatureState
-    private let selection: CombinedSelectionStore
-    private var countdownTimer: Timer?
+    private let settings: SettingsStore
     private var popoverOpenedAt = Date.distantPast
     private var activationObserver: NSObjectProtocol?
     private var shortcutKeyIsDown = false
@@ -19,31 +16,23 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var outsideClickMonitor: Any?
     private var escapeKeyMonitor: Any?
 
-    init(
-        settings: SettingsStore,
-        stats: StatsStore,
-        appState: AppState,
-        gptFeature: GPTFeatureState,
-        selection: CombinedSelectionStore
-    ) {
+    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState) {
         self.appState = appState
-        self.gptFeature = gptFeature
-        self.selection = selection
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let popover = NSPopover()
+        self.settings = settings
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
-        popover.contentSize = NSSize(width: 360, height: 680)
-        self.popover = popover
+        popover.contentSize = NSSize(width: 340, height: 620)
         super.init()
 
         popover.delegate = self
-        let contentView = CombinedMenuBarContentView(gptFeature: gptFeature)
-            .environmentObject(settings)
-            .environmentObject(stats)
-            .environmentObject(appState)
-            .environmentObject(selection)
-        popover.contentViewController = NSHostingController(rootView: contentView)
+        popover.contentViewController = NSHostingController(
+            rootView: MenuBarContentView()
+                .environmentObject(settings)
+                .environmentObject(history)
+                .environmentObject(appState)
+        )
 
         if let button = statusItem.button {
             button.imagePosition = .imageLeading
@@ -53,62 +42,32 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         }
         updateButton()
 
-        appState.requestClosePopover = { [weak self] in
-            self?.closePopover()
-        }
-        appState.requestTogglePopover = { [weak self] in
-            self?.togglePopover(nil)
-        }
-        appState.requestTogglePopoverFromShortcut = { [weak self] in
-            self?.togglePopoverFromShortcut()
-        }
-        appState.completePopoverShortcutPress = { [weak self] in
-            self?.shortcutDidRelease()
-        }
+        appState.requestClosePopover = { [weak self] in self?.closePopover() }
+        appState.requestTogglePopover = { [weak self] in self?.togglePopover(nil) }
+        appState.requestTogglePopoverFromShortcut = { [weak self] in self?.togglePopoverFromShortcut() }
+        appState.completePopoverShortcutPress = { [weak self] in self?.shortcutDidRelease() }
 
         appState.$usage
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateButton()
-            }
+            .sink { [weak self] _ in self?.updateButton() }
             .store(in: &cancellables)
-
-        gptFeature.objectWillChange
+        settings.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.updateButton() }
             }
             .store(in: &cancellables)
-
-        selection.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                DispatchQueue.main.async { self?.updateButton() }
-            }
-            .store(in: &cancellables)
-
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateButton()
-            }
-        }
-    }
-
-    deinit {
-        countdownTimer?.invalidate()
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            guard Date().timeIntervalSince(popoverOpenedAt) >= 0.35 else { return }
+            guard Date().timeIntervalSince(popoverOpenedAt) >= 0.35 else {
+                return
+            }
             popover.performClose(sender)
         } else {
-            Task {
-                async let claudeRefresh: Void = appState.refreshUsageIfStale()
-                async let gptRefresh: Void = gptFeature.refreshIfStale()
-                _ = await (claudeRefresh, gptRefresh)
-            }
+            Task { await appState.refreshUsageIfStale() }
             showPopoverAfterActivation(relativeTo: button)
         }
     }
@@ -118,9 +77,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         restoreTransientWorkItem?.cancel()
         restoreTransientWorkItem = nil
         if !popover.isShown {
-            // A global shortcut's key-up counts as outside interaction to a
-            // transient NSPopover. Protect it until the physical event has
-            // completely left AppKit's event loop.
+            // The key-up that completes a global shortcut counts as outside
+            // interaction to a transient NSPopover. Protect the popover until
+            // that physical event has completely left AppKit's event loop.
             popover.behavior = .applicationDefined
             installKeyboardDismissalMonitors()
         }
@@ -170,8 +129,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         }
     }
 
-    /// Wait for the accessory app to finish activating before presenting a
-    /// keyboard-opened popover; otherwise the prior app's event dismisses it.
+    /// A transient popover shown before an accessory app finishes activating
+    /// is immediately dismissed by the key-up event still owned by the prior
+    /// app. Wait for AppKit's activation notification, then present it.
     private func showPopoverAfterActivation(relativeTo button: NSStatusBarButton) {
         if NSApp.isActive {
             showPopover(relativeTo: button)
@@ -218,20 +178,20 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         removeKeyboardDismissalMonitors()
     }
 
-    /// Menu bar shows a color-coded sparkle plus the current session usage.
-    /// At 100%, crimson and a live reset countdown replace the percentage.
     private func updateButton() {
         guard let button = statusItem.button else { return }
-        let claudePercent = appState.usage?.sessionPercent
-        let gptPercent = gptFeature.codexWeeklyPercent
-        button.image = Self.dualUsageImage(claudePercent: claudePercent, gptPercent: gptPercent)
-        button.title = ""
-        let claudeText = claudePercent.map { "Claude session \($0)%" } ?? "Claude unavailable"
-        let gptText = gptPercent.map { "Codex weekly \($0)%" } ?? "Codex unavailable"
-        button.toolTip = "Session Tracker · \(claudeText) · \(gptText)"
+        let weekly = appState.usage?.weeklyTrack
+        let showWeekly = weekly.map { settings.isUsageTrackVisible($0.preferenceID) }
+            ?? settings.isUsageTrackVisible("codex-weekly")
+        let percent = showWeekly ? weekly?.usedPercent : nil
+        let color = Self.usageColor(percent: percent)
+        button.image = Self.sparkOrbitImage(color: color)
+        button.title = showWeekly ? (percent.map { " \($0)%" } ?? " —%") : ""
+        button.toolTip = percent.map { "GPT Usage Tracker · Codex weekly usage \($0)%" }
+            ?? "GPT Usage Tracker · weekly usage unavailable"
     }
 
-    static func gptUsageColor(percent: Int?) -> NSColor {
+    static func usageColor(percent: Int?) -> NSColor {
         guard let percent else { return .systemGray }
         if percent < 50 { return .systemGreen }
         if percent < 75 { return .systemYellow }
@@ -239,71 +199,33 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         return .systemRed
     }
 
-    /// Inner star represents Claude session usage; outer orbital ring
-    /// represents Codex weekly usage.
-    static func dualUsageImage(claudePercent: Int?, gptPercent: Int?) -> NSImage {
+    /// Direction D refined for the real menu bar: an open orbital usage ring
+    /// around a four-point intelligence spark. It reads clearly at 16px and
+    /// evokes GPT without reproducing OpenAI's knot.
+    static func sparkOrbitImage(color: NSColor) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let image = NSImage(size: size)
         image.lockFocus()
         defer { image.unlockFocus() }
 
-        let ringColor = gptUsageColor(percent: gptPercent)
-        ringColor.setStroke()
+        color.setStroke()
+        color.setFill()
+
         let ring = NSBezierPath()
-        ring.appendArc(
-            withCenter: NSPoint(x: 9, y: 9),
-            radius: 6.4,
-            startAngle: 38,
-            endAngle: 326,
-            clockwise: false
-        )
-        ring.lineWidth = 1.8
+        ring.appendArc(withCenter: NSPoint(x: 9, y: 9), radius: 6.2, startAngle: 38, endAngle: 326, clockwise: false)
+        ring.lineWidth = 1.9
         ring.lineCapStyle = .round
         ring.stroke()
 
-        usageColor(percent: claudePercent).setFill()
-        let star = NSBezierPath()
-        let points: [NSPoint] = [
-            NSPoint(x: 9, y: 4.9), NSPoint(x: 10.1, y: 7.9),
-            NSPoint(x: 13.1, y: 9), NSPoint(x: 10.1, y: 10.1),
-            NSPoint(x: 9, y: 13.1), NSPoint(x: 7.9, y: 10.1),
-            NSPoint(x: 4.9, y: 9), NSPoint(x: 7.9, y: 7.9)
-        ]
-        star.move(to: points[0])
-        for point in points.dropFirst() { star.line(to: point) }
-        star.close()
-        star.fill()
+        let spark = NSBezierPath()
+        spark.move(to: NSPoint(x: 9, y: 5.4))
+        spark.curve(to: NSPoint(x: 12.6, y: 9), controlPoint1: NSPoint(x: 9.5, y: 7.8), controlPoint2: NSPoint(x: 10.2, y: 8.5))
+        spark.curve(to: NSPoint(x: 9, y: 12.6), controlPoint1: NSPoint(x: 10.2, y: 9.5), controlPoint2: NSPoint(x: 9.5, y: 10.2))
+        spark.curve(to: NSPoint(x: 5.4, y: 9), controlPoint1: NSPoint(x: 8.5, y: 10.2), controlPoint2: NSPoint(x: 7.8, y: 9.5))
+        spark.curve(to: NSPoint(x: 9, y: 5.4), controlPoint1: NSPoint(x: 7.8, y: 8.5), controlPoint2: NSPoint(x: 8.5, y: 7.8))
+        spark.close()
+        spark.fill()
 
-        image.isTemplate = false
-        return image
-    }
-
-    static let crimson = NSColor(calibratedRed: 0.863, green: 0.078, blue: 0.235, alpha: 1)
-
-    static func usageColor(percent: Int?) -> NSColor {
-        guard let percent else { return .systemGray }
-        if percent < 70 { return .systemGreen }
-        if percent < 90 { return .systemYellow }
-        return .systemRed
-    }
-
-    static func countdownText(until date: Date) -> String {
-        let remaining = max(0, date.timeIntervalSinceNow)
-        let hours = Int(remaining) / 3600
-        let minutes = (Int(remaining) % 3600) / 60
-        if hours > 0 {
-            return String(format: "%dh %02dm", hours, minutes)
-        }
-        return String(format: "%dm", minutes)
-    }
-
-    /// Menu bar icon: a clean SF Symbols sparkle tinted with the usage
-    /// color. Not a template image: the color carries the usage signal.
-    static func starImage(color: NSColor) -> NSImage {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-        let base = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Session Pinger")
-        let image = base?.withSymbolConfiguration(configuration) ?? NSImage(size: NSSize(width: 16, height: 16))
         image.isTemplate = false
         return image
     }

@@ -6,34 +6,59 @@ struct MenuBarContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var settings: SettingsStore
     @State private var now = Date()
+    let embedded: Bool
 
     private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    init(embedded: Bool = false) {
+        self.embedded = embedded
+    }
+
+    @ViewBuilder
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            if let update = appState.availableUpdate {
-                updateBanner(update)
+        if embedded {
+            VStack(alignment: .leading, spacing: 12) {
+                if let update = appState.availableUpdate {
+                    updateBanner(update)
+                        .padding(14)
+                        .glassPanel()
+                }
+                usageSection
                     .padding(14)
                     .glassPanel()
+                if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
+                    countdownSection
+                        .padding(14)
+                        .glassPanel()
+                }
             }
-            usageSection
-                .padding(14)
-                .glassPanel()
-            if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
-                countdownSection
+            .claudeGlassContainer(spacing: 12)
+            .environment(\.claudeClearGlass, settings.preferClearGlass)
+            .onReceive(clockTimer) { value in now = value }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                header
+                if let update = appState.availableUpdate {
+                    updateBanner(update)
+                        .padding(14)
+                        .glassPanel()
+                }
+                usageSection
                     .padding(14)
                     .glassPanel()
+                if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
+                    countdownSection
+                        .padding(14)
+                        .glassPanel()
+                }
+                actionsSection
             }
-            actionsSection
-        }
-        .claudeGlassContainer(spacing: 12)
-        .environment(\.claudeClearGlass, settings.preferClearGlass)
-        .padding(16)
-        .frame(width: 320)
-        .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
-        .onReceive(clockTimer) { value in
-            now = value
+            .claudeGlassContainer(spacing: 12)
+            .environment(\.claudeClearGlass, settings.preferClearGlass)
+            .padding(16)
+            .frame(width: 320)
+            .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
+            .onReceive(clockTimer) { value in now = value }
         }
     }
 

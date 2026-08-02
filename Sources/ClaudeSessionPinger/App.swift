@@ -1,10 +1,15 @@
 import SwiftUI
 import KeyboardShortcuts
+import GPTTrackerFeature
 
 private extension KeyboardShortcuts.Name {
     static let toggleClaudePinger = Self(
         "toggleClaudePinger",
         default: .init(.u, modifiers: [.command])
+    )
+    static let toggleCombinedGPTTracker = Self(
+        "toggleCombinedGPTTracker",
+        default: .init(.i, modifiers: [.command])
     )
 }
 
@@ -12,22 +17,65 @@ private extension KeyboardShortcuts.Name {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
     let stats = StatsStore()
-    lazy var appState = AppState(settings: settings, stats: stats)
+    let selection = CombinedSelectionStore()
+    let gptFeature = GPTFeatureState()
+    lazy var appState = AppState(settings: settings, stats: stats, updatesEnabled: false)
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?
     private var menuShortcutSettingObserver: NSObjectProtocol?
+    private var gptShortcutSettingObserver: NSObjectProtocol?
     private var menuShortcutTask: Task<Void, Never>?
+    private var gptShortcutTask: Task<Void, Never>?
     private var menuShortcutPressCycle = ShortcutPressCycle()
+    private var gptShortcutPressCycle = ShortcutPressCycle()
+    private var menuTestWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        settingsWindowController = SettingsWindowController(settings: settings, stats: stats, appState: appState)
-        statusBarController = StatusBarController(settings: settings, stats: stats, appState: appState)
+        settingsWindowController = SettingsWindowController(
+            settings: settings,
+            stats: stats,
+            appState: appState,
+            gptFeature: gptFeature,
+            selection: selection
+        )
+        statusBarController = StatusBarController(
+            settings: settings,
+            stats: stats,
+            appState: appState,
+            gptFeature: gptFeature,
+            selection: selection
+        )
         installSettingsShortcut()
         observeMenuShortcutSetting()
         updateMenuShortcutListener()
+        updateGPTShortcutListener()
         closeStraySwiftUIWindows()
+        if ProcessInfo.processInfo.arguments.contains("--show-menu-window-for-testing") {
+            showMenuTestWindow()
+        }
+    }
+
+    /// Presents the exact menu content in a normal window so automated and
+    /// accessibility testing can exercise every tab and button. Production
+    /// launches never enter this path.
+    private func showMenuTestWindow() {
+        let root = CombinedMenuBarContentView(gptFeature: gptFeature)
+            .environmentObject(settings)
+            .environmentObject(stats)
+            .environmentObject(appState)
+            .environmentObject(selection)
+        let hosting = NSHostingController(rootView: root)
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "Session Tracker Menu Preview"
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.isReleasedWhenClosed = false
+        window.setContentSize(NSSize(width: 360, height: 680))
+        window.center()
+        menuTestWindow = window
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     /// The SwiftUI `Settings { EmptyView() }` scene below only exists to
@@ -54,8 +102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let menuShortcutSettingObserver {
             NotificationCenter.default.removeObserver(menuShortcutSettingObserver)
         }
+        if let gptShortcutSettingObserver {
+            NotificationCenter.default.removeObserver(gptShortcutSettingObserver)
+        }
         menuShortcutTask?.cancel()
         menuShortcutTask = nil
+        gptShortcutTask?.cancel()
+        gptShortcutTask = nil
     }
 
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
@@ -86,6 +139,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor in self?.updateMenuShortcutListener() }
         }
+        gptShortcutSettingObserver = NotificationCenter.default.addObserver(
+            forName: Notification.Name("commandIShortcutSettingChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateGPTShortcutListener() }
+        }
     }
 
     /// Toggle once on the first key-down of each physical Command-U press.
@@ -113,6 +173,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleMenuShortcut() {
+        selection.selectedTab = .claude
+        if settingsWindowController?.isShowing == true {
+            appState.toggleSettingsWindow?()
+        } else {
+            appState.requestTogglePopoverFromShortcut?()
+        }
+    }
+
+    /// Command-I opens the GPT half of the combined tracker. It uses the
+    /// same one-activation-per-physical-press guard as Command-U.
+    private func updateGPTShortcutListener() {
+        gptShortcutTask?.cancel()
+        gptShortcutTask = nil
+        gptShortcutPressCycle.reset()
+        guard gptFeature.commandIEnabled else { return }
+
+        gptShortcutTask = Task { [weak self] in
+            for await eventType in KeyboardShortcuts.events(for: .toggleCombinedGPTTracker) {
+                guard !Task.isCancelled else { break }
+                guard let self else { break }
+                let event: ShortcutPressCycle.Event = eventType == .keyDown ? .keyDown : .keyUp
+                if self.gptShortcutPressCycle.handle(event) {
+                    self.handleGPTShortcut()
+                }
+                if eventType == .keyUp {
+                    self.appState.completePopoverShortcutPress?()
+                }
+            }
+        }
+    }
+
+    private func handleGPTShortcut() {
+        if selection.selectedTab == .claude {
+            selection.selectedTab = .codex
+        }
         if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {
@@ -122,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct ClaudeSessionPingerApp: App {
+struct CombinedSessionTrackerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
