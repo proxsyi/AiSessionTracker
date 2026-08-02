@@ -3,7 +3,7 @@
 Generates the Session Pinger app icon as pixel art, following the house
 icon-design rules (encapsulated square, rounded corners, darker greyish-teal
 border panel with a soft top highlight, bright flat inner background, simple
-outlined central symbol) using the app's own Claude-orange accent color.
+outlined central symbol) using the app's own GPT-green accent color.
 
 Drawn at a native 32x32 pixel grid, then scaled up with nearest-neighbor
 resampling (never smoothed) for every size macOS needs in an .iconset.
@@ -15,7 +15,7 @@ BASE = 32
 
 BORDER = (47, 61, 61, 255)          # dark greyish-teal border panel
 BORDER_HIGHLIGHT = (99, 118, 118, 255)  # soft inner top-edge highlight
-INNER_BG = (203, 101, 67, 255)      # Claude accent orange (from Theme.swift)
+INNER_BG = (15, 148, 102, 255)      # GPT accent green (from Theme.swift)
 SYMBOL_FILL = (250, 241, 230, 255)  # warm cream
 SYMBOL_OUTLINE = (58, 33, 21, 255)  # dark brown outline
 

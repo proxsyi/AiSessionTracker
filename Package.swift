@@ -7,7 +7,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "GPTSessionPinger",
-            path: "Sources/ClaudeSessionPinger",
+            path: "Sources/GPTSessionPinger",
             linkerSettings: [
                 .linkedFramework("Carbon")
             ]

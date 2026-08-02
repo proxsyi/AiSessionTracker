@@ -27,8 +27,8 @@ struct MenuBarContentView: View {
             }
             actionsSection
         }
-        .claudeGlassContainer(spacing: 12)
-        .environment(\.claudeClearGlass, settings.preferClearGlass)
+        .gptGlassContainer(spacing: 12)
+        .environment(\.gptClearGlass, settings.preferClearGlass)
         .padding(16)
         .frame(width: 320)
         .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
@@ -44,7 +44,7 @@ struct MenuBarContentView: View {
                 .frame(width: 8, height: 8)
             Text("Session Pinger")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(ClaudeTheme.textPrimary)
+                .foregroundColor(GPTTheme.textPrimary)
             Spacer()
         }
     }
@@ -56,12 +56,12 @@ struct MenuBarContentView: View {
                     .foregroundColor(.green)
                 Text("Version \(update.version) is available")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .foregroundColor(GPTTheme.textPrimary)
             }
             if let notes = update.notes, !notes.isEmpty {
                 Text(notes)
                     .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .foregroundColor(GPTTheme.textSecondary)
                     .lineLimit(2)
             }
             if let installError = appState.installUpdateError {
@@ -74,14 +74,14 @@ struct MenuBarContentView: View {
                 Button(appState.isInstallingUpdate ? "Installing\u{2026}" : "Install & Restart") {
                     appState.installUpdate()
                 }
-                .claudeGhostButton()
+                .gptGhostButton()
                 .disabled(appState.isInstallingUpdate)
                 Button("View release") {
                     if let url = URL(string: update.releasePageURL) {
                         NSWorkspace.shared.open(url)
                     }
                 }
-                .claudeGhostButton()
+                .gptGhostButton()
                 .disabled(appState.isInstallingUpdate)
             }
         }
@@ -95,7 +95,7 @@ struct MenuBarContentView: View {
         case .sending:
             return .yellow
         case .success:
-            return ClaudeTheme.accent
+            return GPTTheme.accent
         case .failure:
             return .red
         }
@@ -133,12 +133,12 @@ struct MenuBarContentView: View {
             HStack {
                 Text(lastUpdatedText)
                     .font(.system(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .foregroundColor(GPTTheme.textSecondary)
                 Spacer()
                 Button(appState.isRefreshingUsage ? "Refreshing\u{2026}" : "Refresh") {
                     Task { await appState.refreshUsage() }
                 }
-                .claudeGhostButton()
+                .gptGhostButton()
                 .disabled(appState.isRefreshingUsage)
             }
         }
@@ -150,7 +150,7 @@ struct MenuBarContentView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .foregroundColor(GPTTheme.textPrimary)
                 Spacer()
                 Text(percent.map { "\($0)%" } ?? "--")
                     .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
@@ -160,11 +160,11 @@ struct MenuBarContentView: View {
             if let resetText {
                 Text(resetText)
                     .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .foregroundColor(GPTTheme.textSecondary)
             } else if percent == nil {
                 Text(missingText)
                     .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .foregroundColor(GPTTheme.textSecondary)
             }
         }
     }
@@ -184,12 +184,12 @@ struct MenuBarContentView: View {
                     .frame(width: 7, height: 7)
                 Text(appState.serviceStatus?.message ?? "Checking OpenAI service status\u{2026}")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .foregroundColor(GPTTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Text(serviceStatusDetail)
                 .font(.system(size: 10))
-                .foregroundColor(ClaudeTheme.textSecondary)
+                .foregroundColor(GPTTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .contentShape(Rectangle())
@@ -253,18 +253,18 @@ struct MenuBarContentView: View {
                 SectionHeader(text: primaryCountdownTitle)
                 Text(primaryCountdownText)
                     .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .foregroundColor(GPTTheme.textPrimary)
                 if let secondaryText = secondaryCountdownText {
                     Text(secondaryText)
                         .font(.system(size: 10))
-                        .foregroundColor(ClaudeTheme.textSecondary.opacity(0.8))
+                        .foregroundColor(GPTTheme.textSecondary.opacity(0.8))
                 }
             }
             Spacer(minLength: 4)
             Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
                 appState.pingNow()
             }
-            .claudePrimaryButton()
+            .gptPrimaryButton()
             .disabled(appState.status == .sending)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -336,12 +336,12 @@ struct MenuBarContentView: View {
                 appState.requestShowSettings?()
                 appState.requestClosePopover?()
             }
-            .claudeGhostButton()
+            .gptGhostButton()
             Spacer()
             Button("Quit") {
                 NSApp.terminate(nil)
             }
-            .claudeGhostButton()
+            .gptGhostButton()
         }
     }
 }

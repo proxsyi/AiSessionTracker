@@ -76,7 +76,7 @@ struct SettingsView: View {
             footer
                 .background(WindowGlassBackground(clearGlass: preferClearGlass))
         }
-        .environment(\.claudeClearGlass, preferClearGlass)
+        .environment(\.gptClearGlass, preferClearGlass)
         .frame(width: 460, height: 600)
         .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
         .onAppear {
@@ -109,7 +109,7 @@ struct SettingsView: View {
                 let indicatorWidth = max((proxy.size.width - 8) / tabCount, 1)
                 ZStack(alignment: .leading) {
                     Capsule(style: .continuous)
-                        .fill(ClaudeTheme.accent.opacity(0.88))
+                        .fill(GPTTheme.accent.opacity(0.88))
                         .overlay(
                             Capsule(style: .continuous)
                                 .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75)
@@ -130,7 +130,7 @@ struct SettingsView: View {
                                     .contentShape(Capsule(style: .continuous))
                             }
                             .buttonStyle(.plain)
-                            .foregroundStyle(selectedTab == tab ? Color.white : ClaudeTheme.textSecondary)
+                            .foregroundStyle(selectedTab == tab ? Color.white : GPTTheme.textSecondary)
                         }
                     }
                     .animation(.easeInOut(duration: 0.14), value: selectedTab)
@@ -190,7 +190,7 @@ struct SettingsView: View {
                 updatesSection.padding(14).glassPanel()
             }
         }
-        .claudeGlassContainer()
+        .gptGlassContainer()
     }
 
     // MARK: - Reusable rows
@@ -202,11 +202,11 @@ struct SettingsView: View {
         HStack {
             Text(title)
                 .font(.system(size: 12))
-                .foregroundColor(ClaudeTheme.textPrimary)
+                .foregroundColor(GPTTheme.textPrimary)
             Spacer()
             Toggle("", isOn: isOn)
                 .labelsHidden()
-                .toggleStyle(ClaudeGlassToggleStyle())
+                .toggleStyle(GPTGlassToggleStyle())
                 .accessibilityLabel(Text(title))
         }
     }
@@ -214,13 +214,13 @@ struct SettingsView: View {
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11))
-            .foregroundColor(ClaudeTheme.textSecondary)
+            .foregroundColor(GPTTheme.textSecondary)
     }
 
     private func caption(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11))
-            .foregroundColor(ClaudeTheme.textSecondary)
+            .foregroundColor(GPTTheme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -233,12 +233,12 @@ struct SettingsView: View {
             Button(loginCaptured || !settings.cookieHeader.isEmpty ? "Log in again" : "Log in with ChatGPT") {
                 showingLogin = true
             }
-            .claudePrimaryButton()
+            .gptPrimaryButton()
 
             if loginCaptured {
                 Text("Signed in -- session and cookies captured automatically.")
                     .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.accent)
+                    .foregroundColor(GPTTheme.accent)
             } else if !settings.cookieHeader.isEmpty {
                 caption("Using a previously captured ChatGPT session.")
             }
@@ -259,7 +259,7 @@ struct SettingsView: View {
             } label: {
                 Label("Keys", systemImage: showManualKeys ? "chevron.down" : "chevron.right")
             }
-            .claudeGhostButton()
+            .gptGhostButton()
 
             if showManualKeys {
             VStack(alignment: .leading, spacing: 10) {
@@ -267,7 +267,7 @@ struct SettingsView: View {
                     fieldLabel("ChatGPT Cookie header")
                     SecureField("Paste the complete Cookie header", text: $sessionKeyInput)
                         .textFieldStyle(.plain)
-                        .claudeGlassField()
+                        .gptGlassField()
                     caption("Only needed if the built-in login doesn't work for your account.")
                 }
                 caption(settings.cookieHeader.isEmpty
@@ -279,7 +279,7 @@ struct SettingsView: View {
             }
         }
         .font(.system(size: 12, weight: .medium))
-        .foregroundColor(ClaudeTheme.textSecondary)
+        .foregroundColor(GPTTheme.textSecondary)
     }
 
     private var pingSection: some View {
@@ -296,7 +296,7 @@ struct SettingsView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .tint(ClaudeTheme.accent)
+                .tint(GPTTheme.accent)
                 caption("Your choice is tried first. If ChatGPT rejects it, the app tries another available model.")
             }
 
@@ -304,7 +304,7 @@ struct SettingsView: View {
                 fieldLabel("Message")
                 TextField("Say 1", text: $message)
                     .textFieldStyle(.plain)
-                    .claudeGlassField()
+                    .gptGlassField()
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -322,7 +322,7 @@ struct SettingsView: View {
                                     .frame(width: 22, alignment: .leading)
                             }
                             .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(ClaudeTheme.textPrimary)
+                            .foregroundColor(GPTTheme.textPrimary)
                         }
                         .controlSize(.small)
                         Spacer()
@@ -330,7 +330,7 @@ struct SettingsView: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(ClaudeTheme.textSecondary)
+                        .foregroundColor(GPTTheme.textSecondary)
                         .help("Remove time")
                     }
                 }
@@ -341,7 +341,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(ClaudeTheme.accent)
+                .foregroundColor(GPTTheme.accent)
                 .disabled(ScheduleRules.firstAvailableHour(addingTo: slots) == nil)
 
                 if let scheduleValidationMessage {
@@ -390,7 +390,7 @@ struct SettingsView: View {
                 Spacer()
                 Text(successRateText)
                     .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .foregroundColor(GPTTheme.textPrimary)
             }
 
             HStack(alignment: .firstTextBaseline) {
@@ -398,7 +398,7 @@ struct SettingsView: View {
                 Spacer()
                 Text(stats.lastRecord?.summary ?? "—")
                     .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .foregroundColor(GPTTheme.textPrimary)
                     .lineLimit(2)
                     .multilineTextAlignment(.trailing)
             }
@@ -425,12 +425,12 @@ struct SettingsView: View {
                             NSWorkspace.shared.open(url)
                         }
                     }
-                    .claudeGhostButton()
+                    .gptGhostButton()
                     Spacer()
                     Button("Start fresh chat") {
                         settings.conversationID = ""
                     }
-                    .claudeGhostButton()
+                    .gptGhostButton()
                 }
             }
         }
@@ -463,7 +463,7 @@ struct SettingsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .tint(ClaudeTheme.accent)
+                    .tint(GPTTheme.accent)
                     caption("The other enabled countdown appears underneath in gray.")
                 }
             }
@@ -498,7 +498,7 @@ struct SettingsView: View {
             Button("Send test notification") {
                 appState.sendTestNotification()
             }
-            .claudeGhostButton()
+            .gptGhostButton()
             if let status = appState.notificationTestStatus {
                 caption(status)
             }
@@ -510,7 +510,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(ClaudeTheme.textPrimary)
+                .foregroundColor(GPTTheme.textPrimary)
             caption(subtitle)
             HStack(spacing: 6) {
                 ForEach(SettingsStore.availableThresholds, id: \.self) { threshold in
@@ -533,10 +533,10 @@ struct SettingsView: View {
                 .font(.system(size: 11, weight: .medium).monospacedDigit())
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .foregroundColor(isOn ? .white : ClaudeTheme.textSecondary)
+                .foregroundColor(isOn ? .white : GPTTheme.textSecondary)
         }
         .buttonStyle(.plain)
-        .claudeGlassChoice(isSelected: isOn)
+        .gptGlassChoice(isSelected: isOn)
         .help(isOn ? "Click to stop notifying at \(threshold)%" : "Click to notify at \(threshold)%")
     }
 
@@ -550,8 +550,8 @@ struct SettingsView: View {
 
     private func wakeTestResultColor(_ outcome: WakeTestOutcome) -> Color {
         switch outcome {
-        case .pending: return ClaudeTheme.textSecondary
-        case .passed: return ClaudeTheme.accent
+        case .pending: return GPTTheme.textSecondary
+        case .passed: return GPTTheme.accent
         case .failed: return .orange
         }
     }
@@ -575,13 +575,13 @@ struct SettingsView: View {
                         Button(appState.isInstallingWakeSupport ? "Installing\u{2026}" : "Install wake support") {
                             appState.installWakeSupport()
                         }
-                        .claudePrimaryButton()
+                        .gptPrimaryButton()
                         .disabled(appState.isInstallingWakeSupport)
                     } else {
                         Button("Run 2-minute closed-lid test") {
                             appState.testWakeSupport()
                         }
-                        .claudeGhostButton()
+                        .gptGhostButton()
                     }
                 }
                 caption("Keep the MacBook connected to power. Session Pinger wakes it five seconds before a scheduled ping, then returns it to sleep after 30 seconds unless you're using it. The test exercises wake, ping, and return-to-sleep together.")
@@ -600,7 +600,7 @@ struct SettingsView: View {
             if let update = appState.availableUpdate {
                 Text("Version \(update.version) is available.")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(ClaudeTheme.accent)
+                    .foregroundColor(GPTTheme.accent)
                 if let installError = appState.installUpdateError {
                     Text(installError)
                         .font(.system(size: 11))
@@ -610,7 +610,7 @@ struct SettingsView: View {
                 Button(appState.isInstallingUpdate ? "Installing\u{2026}" : "Install & Restart") {
                     appState.installUpdate()
                 }
-                .claudePrimaryButton()
+                .gptPrimaryButton()
                 .disabled(appState.isInstallingUpdate)
             } else if let error = appState.updateCheckError {
                 caption(error)
@@ -620,7 +620,7 @@ struct SettingsView: View {
             Button(appState.isCheckingForUpdates ? "Checking\u{2026}" : "Check for updates") {
                 Task { await appState.checkForUpdates() }
             }
-            .claudeGhostButton()
+            .gptGhostButton()
             .disabled(appState.isCheckingForUpdates || appState.isInstallingUpdate)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -631,22 +631,22 @@ struct SettingsView: View {
             if let testResult = testResult {
                 Text(testResult)
                     .font(.system(size: 11))
-                    .foregroundColor(testResult.hasPrefix("Success") ? ClaudeTheme.accent : .red)
+                    .foregroundColor(testResult.hasPrefix("Success") ? GPTTheme.accent : .red)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Button(isTesting ? "Testing\u{2026}" : "Test connection") {
                     runTest()
                 }
-                .claudeGhostButton()
+                .gptGhostButton()
                 .disabled(isTesting)
                 Spacer()
                 Button("Cancel") {
                     appState.closeSettingsWindow?()
                 }
-                .claudeGhostButton()
+                .gptGhostButton()
                 Button("Save") { save() }
-                    .claudePrimaryButton()
+                    .gptPrimaryButton()
                     .disabled(scheduleValidationMessage != nil)
             }
         }

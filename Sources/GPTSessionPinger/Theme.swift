@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-enum ClaudeTheme {
+enum GPTTheme {
     static let accent = Color(red: 0.06, green: 0.58, blue: 0.40)
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
@@ -9,14 +9,14 @@ enum ClaudeTheme {
     static let cardCornerRadius: CGFloat = 12
 }
 
-private struct ClaudeClearGlassKey: EnvironmentKey {
+private struct GPTClearGlassKey: EnvironmentKey {
     static let defaultValue = true
 }
 
 extension EnvironmentValues {
-    var claudeClearGlass: Bool {
-        get { self[ClaudeClearGlassKey.self] }
-        set { self[ClaudeClearGlassKey.self] = newValue }
+    var gptClearGlass: Bool {
+        get { self[GPTClearGlassKey.self] }
+        set { self[GPTClearGlassKey.self] = newValue }
     }
 }
 
@@ -26,9 +26,9 @@ extension EnvironmentValues {
 /// developer.apple.com/documentation/swiftui/view/glasseffect(_:in:)),
 /// and falls back to a Material-based approximation on older systems.
 struct GlassPanel: ViewModifier {
-    var cornerRadius: CGFloat = ClaudeTheme.cardCornerRadius
+    var cornerRadius: CGFloat = GPTTheme.cardCornerRadius
     var tint: Color = .clear
-    @Environment(\.claudeClearGlass) private var preferClearGlass
+    @Environment(\.gptClearGlass) private var preferClearGlass
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -59,7 +59,7 @@ struct GlassPanel: ViewModifier {
 }
 
 extension View {
-    func glassPanel(cornerRadius: CGFloat = ClaudeTheme.cardCornerRadius, tint: Color = .clear) -> some View {
+    func glassPanel(cornerRadius: CGFloat = GPTTheme.cardCornerRadius, tint: Color = .clear) -> some View {
         modifier(GlassPanel(cornerRadius: cornerRadius, tint: tint))
     }
 
@@ -68,7 +68,7 @@ extension View {
     /// always group Liquid Glass elements in a container. No-op fallback
     /// below macOS 26.
     @ViewBuilder
-    func claudeGlassContainer(spacing: CGFloat = 16) -> some View {
+    func gptGlassContainer(spacing: CGFloat = 16) -> some View {
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) {
                 self
@@ -82,11 +82,11 @@ extension View {
 // MARK: - Buttons
 
 /// Fallback primary button style for macOS < 26: a hand-styled glass capsule.
-/// On macOS 26+, use `.claudePrimaryButton()` instead, which applies Apple's
+/// On macOS 26+, use `.gptPrimaryButton()` instead, which applies Apple's
 /// real `.glassProminent` button style directly (built-in styles like
 /// `.glass`/`.glassProminent` can only be applied to an actual `Button`, not
 /// composed from inside another custom `ButtonStyle`).
-struct ClaudeButtonStyle: ButtonStyle {
+struct GPTButtonStyle: ButtonStyle {
     var prominent: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
@@ -97,7 +97,7 @@ struct ClaudeButtonStyle: ButtonStyle {
             .background(.thinMaterial, in: Capsule(style: .continuous))
             .background(
                 Capsule(style: .continuous)
-                    .fill(ClaudeTheme.accent.opacity(configuration.isPressed ? 0.72 : (prominent ? 0.92 : 0.55)))
+                    .fill(GPTTheme.accent.opacity(configuration.isPressed ? 0.72 : (prominent ? 0.92 : 0.55)))
             )
             .overlay(
                 Capsule(style: .continuous)
@@ -110,12 +110,12 @@ struct ClaudeButtonStyle: ButtonStyle {
 }
 
 /// Fallback secondary/tertiary button style for macOS < 26 (Settings, Quit,
-/// Cancel-style actions). On macOS 26+, use `.claudeGhostButton()` instead.
-struct ClaudeGhostButtonStyle: ButtonStyle {
+/// Cancel-style actions). On macOS 26+, use `.gptGhostButton()` instead.
+struct GPTGhostButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .medium))
-            .foregroundColor(ClaudeTheme.textSecondary)
+            .foregroundColor(GPTTheme.textSecondary)
             .opacity(configuration.isPressed ? 0.6 : 1)
     }
 }
@@ -126,12 +126,12 @@ extension View {
     /// developer.apple.com/documentation/swiftui/glassbuttonstyle), falling
     /// back to a hand-styled glass capsule on older systems.
     @ViewBuilder
-    func claudePrimaryButton() -> some View {
+    func gptPrimaryButton() -> some View {
         if #available(macOS 26.0, *) {
             self.buttonStyle(.glassProminent)
-                .tint(ClaudeTheme.accent)
+                .tint(GPTTheme.accent)
         } else {
-            self.buttonStyle(ClaudeButtonStyle())
+            self.buttonStyle(GPTButtonStyle())
         }
     }
 
@@ -139,25 +139,25 @@ extension View {
     /// Apple's real `.glass` button style on macOS 26+, falling back to a
     /// plain text-style ghost button on older systems.
     @ViewBuilder
-    func claudeGhostButton() -> some View {
+    func gptGhostButton() -> some View {
         if #available(macOS 26.0, *) {
             self.buttonStyle(.glass)
         } else {
-            self.buttonStyle(ClaudeGhostButtonStyle())
+            self.buttonStyle(GPTGhostButtonStyle())
         }
     }
 
-    func claudeGlassField() -> some View {
-        modifier(ClaudeGlassFieldModifier())
+    func gptGlassField() -> some View {
+        modifier(GPTGlassFieldModifier())
     }
 
-    func claudeGlassChoice(isSelected: Bool) -> some View {
-        modifier(ClaudeGlassChoiceModifier(isSelected: isSelected))
+    func gptGlassChoice(isSelected: Bool) -> some View {
+        modifier(GPTGlassChoiceModifier(isSelected: isSelected))
     }
 }
 
-private struct ClaudeGlassFieldModifier: ViewModifier {
-    @Environment(\.claudeClearGlass) private var preferClearGlass
+private struct GPTGlassFieldModifier: ViewModifier {
+    @Environment(\.gptClearGlass) private var preferClearGlass
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -176,9 +176,9 @@ private struct ClaudeGlassFieldModifier: ViewModifier {
     }
 }
 
-private struct ClaudeGlassChoiceModifier: ViewModifier {
+private struct GPTGlassChoiceModifier: ViewModifier {
     let isSelected: Bool
-    @Environment(\.claudeClearGlass) private var preferClearGlass
+    @Environment(\.gptClearGlass) private var preferClearGlass
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -186,14 +186,14 @@ private struct ClaudeGlassChoiceModifier: ViewModifier {
             let idleGlass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
             content.glassEffect(
                 isSelected
-                    ? .regular.tint(ClaudeTheme.accent).interactive()
+                    ? .regular.tint(GPTTheme.accent).interactive()
                     : idleGlass.interactive(),
                 in: Capsule(style: .continuous)
             )
         } else {
             content.background(
                 Capsule(style: .continuous)
-                    .fill(isSelected ? ClaudeTheme.accent : Color.primary.opacity(0.08))
+                    .fill(isSelected ? GPTTheme.accent : Color.primary.opacity(0.08))
             )
         }
     }
@@ -202,7 +202,7 @@ private struct ClaudeGlassChoiceModifier: ViewModifier {
 /// A fully custom Liquid Glass switch. The glass track and thumb react as a
 /// single springy control instead of falling back to AppKit's flat blue
 /// switch, while preserving VoiceOver through ToggleStyle.Configuration.
-struct ClaudeGlassToggleStyle: ToggleStyle {
+struct GPTGlassToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         Button {
             // Do not put the setting mutation in a global animation transaction.
@@ -211,15 +211,15 @@ struct ClaudeGlassToggleStyle: ToggleStyle {
             // re-materialize in one spring transaction and can stall the UI.
             configuration.isOn.toggle()
         } label: {
-            ClaudeGlassToggleTrack(isOn: configuration.isOn)
+            GPTGlassToggleTrack(isOn: configuration.isOn)
         }
         .buttonStyle(.plain)
     }
 }
 
-private struct ClaudeGlassToggleTrack: View {
+private struct GPTGlassToggleTrack: View {
     let isOn: Bool
-    @Environment(\.claudeClearGlass) private var preferClearGlass
+    @Environment(\.gptClearGlass) private var preferClearGlass
 
     @ViewBuilder
     var body: some View {
@@ -228,7 +228,7 @@ private struct ClaudeGlassToggleTrack: View {
             track
                 .glassEffect(
                     isOn
-                        ? .regular.tint(ClaudeTheme.accent).interactive()
+                        ? .regular.tint(GPTTheme.accent).interactive()
                         : idleGlass.interactive(),
                     in: Capsule(style: .continuous)
                 )
@@ -236,7 +236,7 @@ private struct ClaudeGlassToggleTrack: View {
             track
                 .background(
                     Capsule(style: .continuous)
-                        .fill(isOn ? ClaudeTheme.accent : Color.primary.opacity(0.12))
+                        .fill(isOn ? GPTTheme.accent : Color.primary.opacity(0.12))
                 )
         }
     }
@@ -280,7 +280,7 @@ struct SectionHeader: View {
         Text(text.uppercased())
             .font(.system(size: 10, weight: .semibold))
             .tracking(0.8)
-            .foregroundColor(ClaudeTheme.textSecondary)
+            .foregroundColor(GPTTheme.textSecondary)
     }
 }
 
@@ -311,7 +311,7 @@ struct UsageBar: View {
 }
 
 private struct GlassUsageTrack: View {
-    @Environment(\.claudeClearGlass) private var preferClearGlass
+    @Environment(\.gptClearGlass) private var preferClearGlass
 
     @ViewBuilder
     var body: some View {

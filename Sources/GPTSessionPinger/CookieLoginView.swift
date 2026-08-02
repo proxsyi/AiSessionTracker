@@ -204,7 +204,7 @@ struct CookieLoginSheet: View {
             HStack {
                 Text("Log in to ChatGPT")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(ClaudeTheme.textPrimary)
+                    .foregroundColor(GPTTheme.textPrimary)
                 Spacer()
                 if case .loading = loginState {
                     ProgressView()
@@ -213,7 +213,7 @@ struct CookieLoginSheet: View {
                         .glassPanel(cornerRadius: 12)
                 }
                 Button("Cancel") { dismiss() }
-                    .claudeGhostButton()
+                    .gptGhostButton()
             }
             .padding(12)
             Divider()
@@ -225,22 +225,22 @@ struct CookieLoginSheet: View {
                         .foregroundColor(.red)
                     Text(message)
                         .font(.system(size: 11))
-                        .foregroundColor(ClaudeTheme.textSecondary)
+                        .foregroundColor(GPTTheme.textSecondary)
                     HStack {
                         Button("Try again") {
                             loginState = .loading
                             reloadToken = UUID()
                         }
-                        .claudePrimaryButton()
+                        .gptPrimaryButton()
                         Button("Use manual paste instead") { dismiss() }
-                            .claudeGhostButton()
+                            .gptGhostButton()
                     }
                 }
                 .padding(16)
             } else {
                 Text("Log in below. Once you're signed in, this closes automatically and your session is captured -- nothing to copy or paste. If your account uses \"Continue with Google\" or similar, that opens in its own sign-in window.")
                     .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
+                    .foregroundColor(GPTTheme.textSecondary)
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                     .fixedSize(horizontal: false, vertical: true)
@@ -259,7 +259,7 @@ struct CookieLoginSheet: View {
                 .padding(12)
             }
         }
-        .environment(\.claudeClearGlass, preferClearGlass)
+        .environment(\.gptClearGlass, preferClearGlass)
         .frame(width: 480, height: 620)
         .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
     }

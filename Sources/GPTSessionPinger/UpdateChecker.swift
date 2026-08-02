@@ -6,7 +6,10 @@ import Foundation
 /// `Scripts/release.sh` builds and publishes that automatically. Because the
 /// repo is public, no token or auth is needed to read releases.
 enum UpdateFeed {
-    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases/latest")!
+    /// This branch publishes independently, so a shared GitHub Releases feed
+    /// cannot safely identify the correct build. Updates remain manual until
+    /// the GPT feed has a dedicated release endpoint.
+    static let latestReleaseAPIURL: URL? = nil
     static let assetName = "GPTSessionPinger.app.zip"
 }
 
@@ -65,8 +68,11 @@ enum UpdateChecker {
     }
 
     static func check(currentVersion: String) async -> UpdateCheckResult {
+        guard let releaseURL = UpdateFeed.latestReleaseAPIURL else {
+            return .failed("GPT update feed is not configured yet.")
+        }
         do {
-            var request = URLRequest(url: UpdateFeed.latestReleaseAPIURL)
+            var request = URLRequest(url: releaseURL)
             request.timeoutInterval = 15
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")

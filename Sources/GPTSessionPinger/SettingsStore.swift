@@ -55,7 +55,6 @@ final class SettingsStore: ObservableObject {
     }
 
     private static let currentKeychainOwnershipMigrationVersion = 2
-    private static let legacyBundleIdentifier = "com.cash.claudesessionpinger"
 
     @Published var organizationID: String {
         didSet { UserDefaults.standard.set(organizationID, forKey: Keys.organizationID) }
@@ -171,7 +170,6 @@ final class SettingsStore: ObservableObject {
 
     init() {
         let defaults = UserDefaults.standard
-        Self.migrateLegacyDefaultsIfNeeded(into: defaults)
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
         let storedModel = defaults.string(forKey: Keys.model) ?? ""
         model = storedModel.isEmpty ? "auto" : storedModel
@@ -228,16 +226,6 @@ final class SettingsStore: ObservableObject {
         } else {
             scheduleSlots = SettingsStore.defaultSlots
         }
-    }
-
-    private static func migrateLegacyDefaultsIfNeeded(into defaults: UserDefaults) {
-        guard !defaults.bool(forKey: Keys.proxsyiDefaultsMigrated) else { return }
-        if let legacyValues = defaults.persistentDomain(forName: legacyBundleIdentifier) {
-            for (key, value) in legacyValues where defaults.object(forKey: key) == nil {
-                defaults.set(value, forKey: key)
-            }
-        }
-        defaults.set(true, forKey: Keys.proxsyiDefaultsMigrated)
     }
 
     var isConfigured: Bool {
