@@ -479,8 +479,8 @@ struct SettingsView: View {
             SectionHeader(text: "Notifications")
 
             toggleRow("Ping failures", isOn: $notifyOnFailure)
-            toggleRow("Claude services down", isOn: $notifyOnServiceOutage)
-            toggleRow("Claude performing poorly", isOn: $notifyOnServiceDegraded)
+            toggleRow("OpenAI services down", isOn: $notifyOnServiceOutage)
+            toggleRow("OpenAI performing poorly", isOn: $notifyOnServiceDegraded)
             toggleRow("New session available", isOn: $notifySessionAvailable)
             toggleRow("Session started by app", isOn: $notifySessionStarted)
 
@@ -674,7 +674,7 @@ struct SettingsView: View {
 
     /// Login finished: store the session and the full cookie header, then
     /// make sure the organization ID is captured too -- from the cookie when
-    /// available, otherwise fetched straight from claude.ai -- and refresh
+    /// available, otherwise fetched straight from ChatGPT -- and refresh
     /// usage right away so the popover fills in without waiting for the next
     /// timer tick.
     private func handleLoginCapture(sessionKey: String, organizationIDFromCookie: String?, cookieHeader: String) {

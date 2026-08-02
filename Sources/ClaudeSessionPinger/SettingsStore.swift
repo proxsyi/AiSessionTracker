@@ -124,7 +124,7 @@ final class SettingsStore: ObservableObject {
     @Published var notifyOnServiceOutage: Bool {
         didSet { UserDefaults.standard.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
     }
-    /// Notify when Claude's status page reports degraded performance (minor
+    /// Notify when OpenAI's status page reports degraded performance (minor
     /// issues), separately from full outages.
     @Published var notifyOnServiceDegraded: Bool {
         didSet { UserDefaults.standard.set(notifyOnServiceDegraded, forKey: Keys.notifyOnServiceDegraded) }
@@ -157,7 +157,7 @@ final class SettingsStore: ObservableObject {
             }
         }
     }
-    /// The full Cookie header captured by the built-in login (every claude.ai
+    /// The full Cookie header captured by the built-in login (every ChatGPT
     /// cookie, not just sessionKey), stored in the keychain alongside the key.
     @Published var cookieHeader: String {
         didSet {

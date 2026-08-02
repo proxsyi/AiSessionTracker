@@ -17,9 +17,6 @@ struct GPTServiceStatus: Equatable {
     var operational: Bool { level == .operational }
 }
 
-typealias ClaudeUsage = GPTUsage
-typealias ClaudeServiceStatus = GPTServiceStatus
-
 enum UsageError: Error, LocalizedError {
     case missingCredentials, sessionExpired, network(URLError), serverError(Int), unexpectedResponse
     var errorDescription: String? {

@@ -19,9 +19,9 @@ echo "Releasing ${TAG}..."
 
 ./Scripts/build_app.sh
 
-ASSET_NAME="ClaudeSessionPinger.app.zip"
+ASSET_NAME="GPTSessionPinger.app.zip"
 rm -f "dist/${ASSET_NAME}"
-ditto -c -k --sequesterRsrc --keepParent "dist/Session Pinger.app" "dist/${ASSET_NAME}"
+ditto -c -k --sequesterRsrc --keepParent "dist/GPT Session Pinger.app" "dist/${ASSET_NAME}"
 
 NOTES=$(awk "/^## v${VERSION}/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md)
 if [ -z "$NOTES" ]; then

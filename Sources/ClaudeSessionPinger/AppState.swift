@@ -498,7 +498,7 @@ final class AppState: ObservableObject {
     private var usageTimer: Timer?
 
     /// Fetches usage shortly after launch, then every 5 minutes, mirroring how
-    /// ClaudeUsageBar keeps its numbers fresh. Failures only set `usageError`
+    /// The ChatGPT usage display keeps its numbers fresh. Failures only set `usageError`
     /// and never interrupt pinging.
     private func scheduleUsageRefreshes() {
         Task { [weak self] in
@@ -556,7 +556,7 @@ final class AppState: ObservableObject {
 
     private var sessionAvailabilityBaselined = false
 
-    private func handleSessionAvailability(previous: ClaudeUsage?, current: ClaudeUsage) {
+    private func handleSessionAvailability(previous: GPTUsage?, current: GPTUsage) {
         let wasBaselined = sessionAvailabilityBaselined
         defer { sessionAvailabilityBaselined = true }
 
@@ -577,7 +577,7 @@ final class AppState: ObservableObject {
             if settings.notifySessionAvailable {
                 sendNotification(
                     identifier: "session-available",
-                    title: "A new Claude session is available",
+                    title: "A new ChatGPT session is available",
                     body: "Your previous 5-hour window reset."
                 )
             }
@@ -586,7 +586,7 @@ final class AppState: ObservableObject {
         startAvailableSessionIfNeeded()
     }
 
-    /// Starts immediately whenever Claude currently accepts session traffic,
+    /// Starts immediately whenever ChatGPT currently accepts session traffic,
     /// except during the five hours before the next configured start. A
     /// successful manual or automatic ping also suppresses duplicates for
     /// five hours, including across app relaunches through Activity history.
@@ -644,13 +644,13 @@ final class AppState: ObservableObject {
     }
     /// nil until the first status check completes, so launching during an
     /// outage never fires a spurious outage/degraded/recovery notification.
-    private var lastKnownServiceLevel: ClaudeServiceStatus.Level?
+    private var lastKnownServiceLevel: GPTServiceStatus.Level?
 
     /// Fires each user-selected usage threshold at most once per window.
     /// Guards against the two big false-alert sources: relaunching the app
     /// (the first fetch baselines silently) and server-side jitter in the
     /// reset timestamps (small shifts don't count as a new window).
-    private func notifyUsageThresholdsIfNeeded(for fetched: ClaudeUsage) {
+    private func notifyUsageThresholdsIfNeeded(for fetched: GPTUsage) {
         if let sessionResets = fetched.sessionResetsAt {
             if isNewWindow(sessionResets, comparedTo: lastSessionResetsAt) {
                 notifiedSessionThresholds.removeAll()
@@ -712,9 +712,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Notifies when Claude services go down, degrade, or recover -- once
+    /// Notifies when OpenAI services go down, degrade, or recover -- once
     /// per level transition, gated by the user's notification toggles.
-    private func notifyServiceChangeIfNeeded(newStatus: ClaudeServiceStatus) {
+    private func notifyServiceChangeIfNeeded(newStatus: GPTServiceStatus) {
         defer { lastKnownServiceLevel = newStatus.level }
         guard let previous = lastKnownServiceLevel, previous != newStatus.level else { return }
         switch newStatus.level {
@@ -722,14 +722,14 @@ final class AppState: ObservableObject {
             guard settings.notifyOnServiceOutage else { return }
             sendNotification(
                 identifier: "service-outage",
-                title: "Claude services are down",
+                title: "OpenAI services are down",
                 body: newStatus.message
             )
         case .degraded:
             guard settings.notifyOnServiceDegraded else { return }
             sendNotification(
                 identifier: "service-degraded",
-                title: "Claude services are performing poorly",
+                title: "OpenAI services are performing poorly",
                 body: newStatus.message
             )
         case .operational:
@@ -737,8 +737,8 @@ final class AppState: ObservableObject {
             guard settings.notifyOnServiceOutage || settings.notifyOnServiceDegraded else { return }
             sendNotification(
                 identifier: "service-recovered",
-                title: "Claude services recovered",
-                body: "All Claude services are operational again."
+                title: "OpenAI services recovered",
+                body: "All OpenAI services are operational again."
             )
         }
     }
