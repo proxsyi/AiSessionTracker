@@ -14,7 +14,10 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 
 swift build -c release
 
-rm -rf "${DIST_DIR}"
+# GPT and Claude builds can share this checkout's dist directory while the
+# products are maintained on separate branches. Replace only this product so
+# building a GPT release never removes a Claude app that is currently in use.
+rm -rf "${DIST_APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
