@@ -36,7 +36,7 @@ find "${APP_DIR}" -name "._*" -delete
 # re-prompt for access every time you update. Falls back to ad-hoc signing
 # (which changes every build, causing keychain re-prompts) if no identity is
 # found. Override the identity name with CODESIGN_IDENTITY if needed.
-SIGN_IDENTITY="${CODESIGN_IDENTITY:-Apple Development}"
+SIGN_IDENTITY="${CODESIGN_IDENTITY:-Session Pinger Signing}"
 if security find-identity -v -p codesigning | grep -q "${SIGN_IDENTITY}"; then
     echo "Signing with identity: ${SIGN_IDENTITY}"
     codesign --force --deep --sign "${SIGN_IDENTITY}" "${APP_DIR}"

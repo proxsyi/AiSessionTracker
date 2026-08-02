@@ -80,13 +80,15 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
-    /// Menu bar shows a color-coded sparkle plus the current session usage.
+    /// Menu bar shows a color-coded, original geometric knot plus the current
+    /// session usage. Its background remains fully transparent, as required
+    /// for a compact status-bar item.
     /// At 100%, crimson and a live reset countdown replace the percentage.
     private func updateButton(usage: GPTUsage?) {
         guard let button = statusItem.button else { return }
         let percent = usage?.sessionPercent
         let isMaxed = (percent ?? 0) >= 100
-        button.image = Self.starImage(color: isMaxed ? Self.crimson : Self.usageColor(percent: percent))
+        button.image = Self.knotImage(color: isMaxed ? Self.crimson : Self.usageColor(percent: percent))
         if isMaxed, let resetsAt = usage?.sessionResetsAt {
             button.title = " \(Self.countdownText(until: resetsAt))"
         } else {
@@ -113,12 +115,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         return String(format: "%dm", minutes)
     }
 
-    /// Menu bar icon: a clean SF Symbols sparkle tinted with the usage
-    /// color. Not a template image: the color carries the usage signal.
-    static func starImage(color: NSColor) -> NSImage {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+    /// An SF Symbol mesh is legible at menu-bar size and evokes an AI knot
+    /// without reproducing the ChatGPT mark. The symbol's surrounding pixels
+    /// are transparent; only its strokes receive the usage-state color.
+    static func knotImage(color: NSColor) -> NSImage {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
             .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-        let base = NSImage(systemSymbolName: "sparkle", accessibilityDescription: "Session Pinger")
+        let base = NSImage(systemSymbolName: "circle.hexagongrid", accessibilityDescription: "GPT Session Pinger")
         let image = base?.withSymbolConfiguration(configuration) ?? NSImage(size: NSSize(width: 16, height: 16))
         image.isTemplate = false
         return image
