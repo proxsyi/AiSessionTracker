@@ -18,7 +18,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsShortcutMonitor: Any?
     private var menuShortcutSettingObserver: NSObjectProtocol?
     private var menuShortcutTask: Task<Void, Never>?
-    private var menuShortcutGate = ShortcutActivationGate()
     private var menuTestWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -77,9 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
-    /// closed and closes it when it's already open. Cmd+I gets a local path
-    /// here as well, so it remains responsive while one of this app's windows
-    /// owns keyboard focus. The global listener below handles every other app.
+    /// closed and closes it when it's already open. Command-I intentionally
+    /// stays on the single global path below: observing it here as well would
+    /// toggle once on key-down and again on key-up.
     private func installSettingsShortcut() {
         settingsShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -88,9 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case ",":
                 self.appState.toggleSettingsWindow?()
-                return nil
-            case "i" where self.settings.enableCommandIShortcut:
-                self.handleMenuShortcut()
                 return nil
             default:
                 return event
@@ -126,10 +122,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleMenuShortcut() {
-        // A focused key press can be observed by both AppKit's local monitor
-        // and KeyboardShortcuts' global listener. Treat those near-simultaneous
-        // callbacks as one press instead of opening and immediately closing.
-        guard menuShortcutGate.shouldHandle() else { return }
         if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {

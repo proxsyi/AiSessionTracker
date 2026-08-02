@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.3
+
+- Fixed Command-I opening and immediately closing by removing the second focused-app callback; each physical press now travels through one global key-up handler and produces exactly one toggle.
+
 ## v2.0.2
 
 - Replaced the custom Command-I event handler with the maintained KeyboardShortcuts implementation so the global shortcut callback works reliably without Accessibility or Input Monitoring permission; added a focused-app fallback and duplicate-event protection.
