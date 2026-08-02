@@ -270,23 +270,25 @@ struct SettingsView: View {
 
     private var weeklyAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Codex weekly alerts")
+            SectionHeader(text: "Codex weekly usage alerts")
             toggleRow("Enable weekly usage alerts", isOn: alertBinding(for: "codex-weekly"))
             thresholdButtons(selection: $weeklyThresholds)
-            Text("Each selected threshold alerts once per weekly window. The first refresh after launch is used only as a baseline.")
+            Text("Choose every threshold you want. Each sends once per reported weekly reset window; the first refresh after launch is only a baseline.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
     }
 
     private var optionalAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Optional tracked-limit alerts")
-            Text("Off by default. Enable only the additional counters you care about.")
+            SectionHeader(text: "Per-limit usage alerts")
+            Text("Turn on exactly the Codex or ChatGPT counters you want notifications for. These are off by default and remain separate from weekly alerts.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            Picker("Alert at", selection: $additionalAlertThreshold) {
+            Picker("Alert threshold", selection: $additionalAlertThreshold) {
                 ForEach(SettingsStore.availableThresholds, id: \.self) { Text("\($0)%").tag($0) }
             }
             .pickerStyle(.menu)
+            Text("Enabled percentage-based limits notify at this threshold. Exhausted remaining-use limits notify once when they become unavailable.")
+                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             ForEach(scopedUsageRows.filter { $0.id != "codex-weekly" && $0.isReported }) { row in
                 toggleRow(row.title, isOn: alertBinding(for: row.id))
             }
