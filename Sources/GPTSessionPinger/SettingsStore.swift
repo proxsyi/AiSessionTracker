@@ -175,7 +175,7 @@ final class SettingsStore: ObservableObject {
         // Earlier GPT previews briefly inherited the old app's preference
         // domain. A Claude model slug is never valid for this app, so replace
         // it with the GPT automatic model and persist that correction.
-        let normalizedModel = storedModel.lowercased().contains("claude")
+        let normalizedModel = storedModel == "auto" || storedModel.lowercased().contains("claude")
             ? "gpt-5.4-mini"
             : (storedModel.isEmpty ? "gpt-5.4-mini" : storedModel)
         model = normalizedModel
