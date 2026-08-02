@@ -33,7 +33,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         }
         #endif
         context.coordinator.attach(to: webView)
-        let request = URLRequest(url: URL(string: "https://chatgpt.com/auth/login")!, cachePolicy: .returnCacheDataElseLoad)
+        let request = URLRequest(url: URL(string: "https://chatgpt.com/")!, cachePolicy: .reloadIgnoringLocalCacheData)
         webView.load(request)
         return webView
     }
@@ -97,12 +97,18 @@ struct CookieLoginRepresentable: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             guard webView === self.webView else { return }
+            guard !isExpectedNavigationInterruption(error) else { return }
             onStateChange(.failed(error.localizedDescription))
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             guard webView === self.webView else { return }
+            guard !isExpectedNavigationInterruption(error) else { return }
             onStateChange(.failed(error.localizedDescription))
+        }
+
+        private func isExpectedNavigationInterruption(_ error: Error) -> Bool {
+            (error as? URLError)?.code == .cancelled
         }
 
         // MARK: WKUIDelegate -- needed so SSO/OAuth popups (e.g. "Continue with Google") can open
