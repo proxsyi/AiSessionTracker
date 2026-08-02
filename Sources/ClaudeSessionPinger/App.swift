@@ -172,26 +172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard kind == UInt32(kEventHotKeyPressed), !menuHotKeyIsDown else { return }
         menuHotKeyIsDown = true
-        waitForMenuHotKeyRelease()
         if NSApp.keyWindow?.title == "Settings" {
             appState.toggleSettingsWindow?()
         } else {
             appState.requestTogglePopover?()
-        }
-    }
-
-    /// A Carbon release event can occasionally be lost while macOS changes
-    /// the active window to the popover. Polling the Command modifier gives
-    /// the shortcut a permission-free recovery path without accepting key
-    /// repeat as a second press.
-    private func waitForMenuHotKeyRelease() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-            guard let self, self.menuHotKeyIsDown else { return }
-            if NSEvent.modifierFlags.contains(.command) {
-                self.waitForMenuHotKeyRelease()
-            } else {
-                self.menuHotKeyIsDown = false
-            }
         }
     }
 }

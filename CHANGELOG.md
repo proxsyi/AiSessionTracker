@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.16.1
+
+- Isolated Claude updates from GPT releases in the shared repository by filtering for `v*` tags with the Claude app asset.
+- Fixed the Command-U popover race by making Carbon press/release events the sole hotkey authority.
+
 ## v1.16.0
 
 - Added on-by-default scheduled wake support for sleeping, plugged-in Macs, backed by a one-time administrator-installed helper that schedules persistent IOKit wake events.

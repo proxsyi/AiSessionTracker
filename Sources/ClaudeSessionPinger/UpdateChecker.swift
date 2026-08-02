@@ -6,7 +6,10 @@ import Foundation
 /// `Scripts/release.sh` builds and publishes that automatically. Because the
 /// repo is public, no token or auth is needed to read releases.
 enum UpdateFeed {
-    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases/latest")!
+    /// Claude and GPT releases share the repository. Read the release list
+    /// and accept only ordinary `v*` tags carrying the Claude app asset.
+    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases?per_page=30")!
+    static let tagPrefix = "v"
     static let assetName = "ClaudeSessionPinger.app.zip"
 }
 
@@ -80,8 +83,14 @@ enum UpdateChecker {
                 }
                 return .failed("GitHub returned an unexpected response (\(http.statusCode)).")
             }
-            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-            let version = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
+            let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+            guard let release = releases.first(where: { release in
+                release.tag_name.hasPrefix(UpdateFeed.tagPrefix)
+                    && release.assets.contains(where: { $0.name == UpdateFeed.assetName })
+            }) else {
+                return .failed("No Claude releases found yet.")
+            }
+            let version = String(release.tag_name.dropFirst(UpdateFeed.tagPrefix.count))
             guard isNewer(version, than: currentVersion) else {
                 return .upToDate
             }
