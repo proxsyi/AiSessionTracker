@@ -235,14 +235,34 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let claudePercent = selection.claudeVisible ? appState.usage?.sessionPercent : nil
         let gptPercent = selection.codexVisible ? gptFeature.codexWeeklyPercent : nil
         button.image = Self.dualUsageImage(claudePercent: claudePercent, gptPercent: gptPercent)
-        let meter = [
-            claudePercent.map { "C \($0)%" },
-            gptPercent.map { "G \($0)%" }
-        ].compactMap { $0 }.joined(separator: " · ")
-        button.title = meter.isEmpty ? "" : " \(meter)"
+        button.attributedTitle = usageMeterTitle(claudePercent: claudePercent, gptPercent: gptPercent)
         let claudeText = selection.claudeVisible ? (claudePercent.map { "Claude session \($0)%" } ?? "Claude unavailable") : "Claude hidden"
         let gptText = selection.codexVisible ? (gptPercent.map { "Codex weekly \($0)%" } ?? "Codex unavailable") : "Codex hidden"
         button.toolTip = "Session Tracker · \(claudeText) · \(gptText)"
+    }
+
+    private func usageMeterTitle(claudePercent: Int?, gptPercent: Int?) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: " ")
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        var needsSeparator = false
+
+        if let claudePercent {
+            result.append(NSAttributedString(
+                string: "\(claudePercent)%",
+                attributes: [.font: font, .foregroundColor: NSColor(calibratedRed: 0.80, green: 0.40, blue: 0.27, alpha: 1)]
+            ))
+            needsSeparator = true
+        }
+        if let gptPercent {
+            if needsSeparator {
+                result.append(NSAttributedString(string: " / ", attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]))
+            }
+            result.append(NSAttributedString(
+                string: "\(gptPercent)%",
+                attributes: [.font: font, .foregroundColor: Self.gptUsageColor(percent: gptPercent)]
+            ))
+        }
+        return result
     }
 
     static func gptUsageColor(percent: Int?) -> NSColor {
