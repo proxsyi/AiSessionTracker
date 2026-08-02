@@ -172,7 +172,16 @@ final class SettingsStore: ObservableObject {
         let defaults = UserDefaults.standard
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
         let storedModel = defaults.string(forKey: Keys.model) ?? ""
-        model = storedModel.isEmpty ? "auto" : storedModel
+        // Earlier GPT previews briefly inherited the old app's preference
+        // domain. A Claude model slug is never valid for this app, so replace
+        // it with the GPT automatic model and persist that correction.
+        let normalizedModel = storedModel.lowercased().contains("claude")
+            ? "auto"
+            : (storedModel.isEmpty ? "auto" : storedModel)
+        model = normalizedModel
+        if normalizedModel != storedModel {
+            defaults.set(normalizedModel, forKey: Keys.model)
+        }
         message = defaults.string(forKey: Keys.message) ?? "Say 1"
         conversationID = defaults.string(forKey: Keys.conversationID) ?? ""
         showSessionBar = defaults.object(forKey: Keys.showSessionBar) == nil ? true : defaults.bool(forKey: Keys.showSessionBar)
