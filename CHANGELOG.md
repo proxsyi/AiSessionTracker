@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.2
+
+- Replaced the custom Command-I event handler with the maintained KeyboardShortcuts implementation so the global shortcut callback works reliably without Accessibility or Input Monitoring permission; added a focused-app fallback and duplicate-event protection.
+
 ## v2.0.1
 
 - Fixed Command-I opening with direct main-thread hot-key dispatch, exclusive GPT registration, a launch retry, and safe recovery when macOS misses a key-release event.

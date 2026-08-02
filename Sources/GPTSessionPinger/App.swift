@@ -1,8 +1,12 @@
 import SwiftUI
-import Carbon.HIToolbox
+import KeyboardShortcuts
 
-private let menuHotKeySignature: OSType = 0x47505454 // "GPTT"
-private let menuHotKeyIdentifier: UInt32 = 1
+private extension KeyboardShortcuts.Name {
+    static let toggleGPTTracker = Self(
+        "toggleGPTTracker",
+        default: .init(.i, modifiers: [.command])
+    )
+}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -12,10 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?
-    private var menuHotKeyRef: EventHotKeyRef?
-    private var menuHotKeyHandlerRef: EventHandlerRef?
     private var menuShortcutSettingObserver: NSObjectProtocol?
-    private var menuHotKeyPressGate = HotKeyPressGate()
+    private var menuShortcutTask: Task<Void, Never>?
+    private var menuShortcutGate = ShortcutActivationGate()
     private var menuTestWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -24,14 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController = StatusBarController(settings: settings, history: history, appState: appState)
         installSettingsShortcut()
         observeMenuShortcutSetting()
-        updateMenuHotKeyRegistration()
-        // SwiftUI can still be finishing its application-event setup during
-        // didFinishLaunching. Retry once after that handoff if registration
-        // did not produce a hot-key reference on the first pass.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, self.settings.enableCommandIShortcut, self.menuHotKeyRef == nil else { return }
-            self.registerMenuHotKey()
-        }
+        updateMenuShortcutListener()
         closeStraySwiftUIWindows()
         let showMenuForTesting = UserDefaults.standard.bool(forKey: "showMenuPopoverForTesting")
             || ProcessInfo.processInfo.arguments.contains("--show-menu-popover-for-testing")
@@ -66,7 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let menuShortcutSettingObserver {
             NotificationCenter.default.removeObserver(menuShortcutSettingObserver)
         }
-        unregisterMenuHotKey()
+        menuShortcutTask?.cancel()
+        menuShortcutTask = nil
     }
 
     /// Reopening the accessory app from Finder, Spotlight, or `open` presents
@@ -80,10 +77,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
-    /// closed and closes it when it's already open, whenever this app --
-    /// the menu bar popover or the Settings window itself -- is active.
-    /// Only fires for that exact key combo so normal typing (e.g. a comma
-    /// in the message field) is never intercepted.
+    /// closed and closes it when it's already open. Cmd+I gets a local path
+    /// here as well, so it remains responsive while one of this app's windows
+    /// owns keyboard focus. The global listener below handles every other app.
     private func installSettingsShortcut() {
         settingsShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
@@ -92,6 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case ",":
                 self.appState.toggleSettingsWindow?()
+                return nil
+            case "i" where self.settings.enableCommandIShortcut:
+                self.handleMenuShortcut()
                 return nil
             default:
                 return event
@@ -105,97 +104,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.updateMenuHotKeyRegistration() }
+            Task { @MainActor in self?.updateMenuShortcutListener() }
         }
     }
 
-    /// Carbon's registered hot-key API works globally without Accessibility
-    /// or Input Monitoring permission, unlike NSEvent's global key monitor.
-    private func updateMenuHotKeyRegistration() {
-        if settings.enableCommandIShortcut {
-            registerMenuHotKey()
-        } else {
-            unregisterMenuHotKey()
-        }
-    }
+    /// KeyboardShortcuts owns the low-level Carbon registration and delivers
+    /// one key-up event per physical Command-I press without requiring Input
+    /// Monitoring or Accessibility permission.
+    private func updateMenuShortcutListener() {
+        menuShortcutTask?.cancel()
+        menuShortcutTask = nil
+        guard settings.enableCommandIShortcut else { return }
 
-    private func registerMenuHotKey() {
-        guard menuHotKeyRef == nil else { return }
-
-        let eventTypes = [
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
-            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
-        ]
-        let handler: EventHandlerUPP = { _, event, userData in
-            guard let event, let userData else { return noErr }
-            var hotKeyID = EventHotKeyID()
-            let status = GetEventParameter(
-                event,
-                EventParamName(kEventParamDirectObject),
-                EventParamType(typeEventHotKeyID),
-                nil,
-                MemoryLayout<EventHotKeyID>.size,
-                nil,
-                &hotKeyID
-            )
-            guard status == noErr,
-                  hotKeyID.signature == menuHotKeySignature,
-                  hotKeyID.id == menuHotKeyIdentifier else { return noErr }
-            let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
-            let eventKind = GetEventKind(event)
-            DispatchQueue.main.async {
-                appDelegate.handleMenuHotKeyEvent(kind: eventKind)
+        menuShortcutTask = Task { [weak self] in
+            for await eventType in KeyboardShortcuts.events(for: .toggleGPTTracker) {
+                guard !Task.isCancelled else { break }
+                guard eventType == .keyUp else { continue }
+                self?.handleMenuShortcut()
             }
-            return noErr
-        }
-
-        let installStatus = eventTypes.withUnsafeBufferPointer { events in
-            InstallEventHandler(
-                GetApplicationEventTarget(),
-                handler,
-                events.count,
-                events.baseAddress,
-                Unmanaged.passUnretained(self).toOpaque(),
-                &menuHotKeyHandlerRef
-            )
-        }
-        guard installStatus == noErr else { return }
-
-        let hotKeyID = EventHotKeyID(signature: menuHotKeySignature, id: menuHotKeyIdentifier)
-        let registerStatus = RegisterEventHotKey(
-            UInt32(kVK_ANSI_I),
-            UInt32(cmdKey),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            OptionBits(kEventHotKeyExclusive),
-            &menuHotKeyRef
-        )
-        if registerStatus != noErr {
-            NSLog("GPT Usage Tracker: Command-I registration failed with status \(registerStatus)")
-            unregisterMenuHotKey()
         }
     }
 
-    private func unregisterMenuHotKey() {
-        if let menuHotKeyRef {
-            UnregisterEventHotKey(menuHotKeyRef)
-            self.menuHotKeyRef = nil
-        }
-        if let menuHotKeyHandlerRef {
-            RemoveEventHandler(menuHotKeyHandlerRef)
-            self.menuHotKeyHandlerRef = nil
-        }
-        menuHotKeyPressGate.reset()
-    }
-
-    /// Toggle once per physical press. The gate also recovers if macOS misses
-    /// a release callback without allowing held-key repeats to close the menu.
-    private func handleMenuHotKeyEvent(kind: UInt32) {
-        if kind == UInt32(kEventHotKeyReleased) {
-            _ = menuHotKeyPressGate.handle(.released)
-            return
-        }
-        guard kind == UInt32(kEventHotKeyPressed), menuHotKeyPressGate.handle(.pressed) else { return }
+    private func handleMenuShortcut() {
+        // A focused key press can be observed by both AppKit's local monitor
+        // and KeyboardShortcuts' global listener. Treat those near-simultaneous
+        // callbacks as one press instead of opening and immediately closing.
+        guard menuShortcutGate.shouldHandle() else { return }
         if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {
