@@ -138,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let hotKeyID = EventHotKeyID(signature: menuHotKeySignature, id: menuHotKeyIdentifier)
         let registerStatus = RegisterEventHotKey(
-            UInt32(kVK_ANSI_U),
+            UInt32(kVK_ANSI_I),
             UInt32(cmdKey),
             hotKeyID,
             GetApplicationEventTarget(),

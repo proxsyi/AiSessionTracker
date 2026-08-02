@@ -560,7 +560,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "App")
             toggleRow("Launch at login", isOn: $launchAtLogin)
-            toggleRow("Command-U opens menu", isOn: $enableCommandUShortcut)
+            toggleRow("Command-I opens GPT menu", isOn: $enableCommandUShortcut)
             toggleRow("Wake Mac for scheduled pings", isOn: $enableScheduledWake)
             if enableScheduledWake {
                 caption(appState.wakeSupportStatus)

@@ -9,7 +9,7 @@ A personal macOS menu bar app that sends short messages to ChatGPT on an intenti
 - Uses one dedicated ChatGPT conversation for scheduled, manual, and connection-test pings.
 - Captures your ChatGPT web-session cookies through a built-in browser login and keeps them only in the macOS Keychain.
 - Shows session and weekly limits when ChatGPT reports equivalent account data, plus OpenAI service health.
-- Provides persistent activity history, notifications, global Command-U, and automatic update checks.
+- Provides persistent activity history, notifications, global Command-I, and automatic update checks.
 - Can wake a plugged-in, closed-lid MacBook for a scheduled ping and return it to sleep when there was no physical input.
 - Runs only in the menu bar; there is no Dock icon.
 
