@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuHotKeyRef: EventHotKeyRef?
     private var menuHotKeyHandlerRef: EventHandlerRef?
     private var menuShortcutSettingObserver: NSObjectProtocol?
-    private var menuHotKeyIsDown = false
+    private var menuHotKeyPressGate = HotKeyPressGate()
     private var menuTestWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -25,6 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installSettingsShortcut()
         observeMenuShortcutSetting()
         updateMenuHotKeyRegistration()
+        // SwiftUI can still be finishing its application-event setup during
+        // didFinishLaunching. Retry once after that handoff if registration
+        // did not produce a hot-key reference on the first pass.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, self.settings.enableCommandIShortcut, self.menuHotKeyRef == nil else { return }
+            self.registerMenuHotKey()
+        }
         closeStraySwiftUIWindows()
         let showMenuForTesting = UserDefaults.standard.bool(forKey: "showMenuPopoverForTesting")
             || ProcessInfo.processInfo.arguments.contains("--show-menu-popover-for-testing")
@@ -136,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                   hotKeyID.id == menuHotKeyIdentifier else { return noErr }
             let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
             let eventKind = GetEventKind(event)
-            Task { @MainActor in
+            DispatchQueue.main.async {
                 appDelegate.handleMenuHotKeyEvent(kind: eventKind)
             }
             return noErr
@@ -160,10 +167,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UInt32(cmdKey),
             hotKeyID,
             GetApplicationEventTarget(),
-            0,
+            OptionBits(kEventHotKeyExclusive),
             &menuHotKeyRef
         )
         if registerStatus != noErr {
+            NSLog("GPT Usage Tracker: Command-I registration failed with status \(registerStatus)")
             unregisterMenuHotKey()
         }
     }
@@ -177,19 +185,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             RemoveEventHandler(menuHotKeyHandlerRef)
             self.menuHotKeyHandlerRef = nil
         }
-        menuHotKeyIsDown = false
+        menuHotKeyPressGate.reset()
     }
 
-    /// Toggle on the physical press edge only. Carbon's matching release is
-    /// the sole authority that clears the state, so a timer cannot mistake a
-    /// still-held shortcut for a second press and immediately close the menu.
+    /// Toggle once per physical press. The gate also recovers if macOS misses
+    /// a release callback without allowing held-key repeats to close the menu.
     private func handleMenuHotKeyEvent(kind: UInt32) {
         if kind == UInt32(kEventHotKeyReleased) {
-            menuHotKeyIsDown = false
+            _ = menuHotKeyPressGate.handle(.released)
             return
         }
-        guard kind == UInt32(kEventHotKeyPressed), !menuHotKeyIsDown else { return }
-        menuHotKeyIsDown = true
+        guard kind == UInt32(kEventHotKeyPressed), menuHotKeyPressGate.handle(.pressed) else { return }
         if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {

@@ -22,15 +22,14 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             if let update = appState.availableUpdate {
-                updateBanner(update).padding(14).glassPanel()
+                updateBanner(update).trackerMenuCard()
             }
             if settings.showCategoryTabs {
                 usageTabs
             }
             usageContent
             serviceAndRefresh
-                .padding(14)
-                .glassPanel()
+                .trackerMenuCard()
             actionsSection
         }
         .gptGlassContainer(spacing: 12)
@@ -92,19 +91,18 @@ struct MenuBarContentView: View {
         let tracks = visibleTracks.filter { tab == .codex ? $0.isCodexTrack : !$0.isCodexTrack }
         VStack(alignment: .leading, spacing: 12) {
             if tab == .codex, let weekly = visibleWeeklyTrack {
-                heroTrack(weekly).padding(14).glassPanel()
+                heroTrack(weekly).trackerMenuCard()
                 let other = tracks.filter { $0.id != weekly.id }
-                if !other.isEmpty { compactTracks(title: "Other Codex limits", tracks: other).padding(14).glassPanel() }
+                if !other.isEmpty { compactTracks(title: "Other Codex limits", tracks: other).trackerMenuCard() }
             } else {
                 compactTracks(title: tab == .codex ? "Codex usage" : "ChatGPT usage", tracks: tracks)
-                    .padding(14)
-                    .glassPanel()
+                    .trackerMenuCard()
             }
             if let reset = primaryResetDate(for: tracks) {
-                resetCountdown(reset).padding(14).glassPanel()
+                resetCountdown(reset).trackerMenuCard()
             }
             if settings.showHistoryChart, let primary = primaryTrack(for: tracks) {
-                historyChart(for: primary).padding(14).glassPanel()
+                historyChart(for: primary).trackerMenuCard()
             }
         }
     }
@@ -112,21 +110,21 @@ struct MenuBarContentView: View {
     private var combinedContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let weekly = visibleWeeklyTrack {
-                heroTrack(weekly).padding(14).glassPanel()
+                heroTrack(weekly).trackerMenuCard()
             }
             let otherCodex = visibleTracks.filter { $0.isCodexTrack && $0.preferenceID != "codex-weekly" }
             if !otherCodex.isEmpty {
-                compactTracks(title: "Other Codex limits", tracks: otherCodex).padding(14).glassPanel()
+                compactTracks(title: "Other Codex limits", tracks: otherCodex).trackerMenuCard()
             }
             let chatGPT = visibleTracks.filter { !$0.isCodexTrack }
             if !chatGPT.isEmpty {
-                compactTracks(title: "ChatGPT limits", tracks: chatGPT).padding(14).glassPanel()
+                compactTracks(title: "ChatGPT limits", tracks: chatGPT).trackerMenuCard()
             }
             if let reset = primaryResetDate(for: visibleTracks) {
-                resetCountdown(reset).padding(14).glassPanel()
+                resetCountdown(reset).trackerMenuCard()
             }
             if settings.showHistoryChart, let primary = primaryTrack(for: visibleTracks) {
-                historyChart(for: primary).padding(14).glassPanel()
+                historyChart(for: primary).trackerMenuCard()
             }
         }
     }
@@ -337,5 +335,13 @@ struct MenuBarContentView: View {
             Spacer()
             Button("Quit") { NSApp.terminate(nil) }.gptGhostButton()
         }
+    }
+}
+
+private extension View {
+    func trackerMenuCard() -> some View {
+        padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassPanel()
     }
 }

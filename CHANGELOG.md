@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.0.1
+
+- Fixed Command-I opening with direct main-thread hot-key dispatch, exclusive GPT registration, a launch retry, and safe recovery when macOS misses a key-release event.
+- Made every usage, reset, chart, status, and update card fill the menu width consistently instead of leaving short cards pushed against the left edge.
+
 ## v2.0.0
 
 - Rebuilt the GPT product as GPT Usage Tracker: a read-only ChatGPT and Codex usage dashboard with no message sending, session starting, schedules, ping activity, or wake support.
