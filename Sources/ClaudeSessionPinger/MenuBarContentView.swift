@@ -31,6 +31,9 @@ struct MenuBarContentView: View {
                         .padding(14)
                         .glassPanel()
                 }
+                serviceAndRefreshSection
+                    .padding(14)
+                    .glassPanel()
             }
             .claudeGlassContainer(spacing: 12)
             .environment(\.claudeClearGlass, settings.preferClearGlass)
@@ -51,6 +54,9 @@ struct MenuBarContentView: View {
                         .padding(14)
                         .glassPanel()
                 }
+                serviceAndRefreshSection
+                    .padding(14)
+                    .glassPanel()
                 actionsSection
             }
             .claudeGlassContainer(spacing: 12)
@@ -162,10 +168,13 @@ struct MenuBarContentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Divider()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
+    private var serviceAndRefreshSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
             serviceStatusRow
-
             HStack {
                 Text(lastUpdatedText)
                     .font(.system(size: 10))
@@ -178,7 +187,6 @@ struct MenuBarContentView: View {
                 .disabled(appState.isRefreshingUsage)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func usageRow(title: String, percent: Int?, resetText: String?, missingText: String = "No data yet") -> some View {

@@ -34,6 +34,7 @@ struct SettingsView: View {
     let showsUpdateControls: Bool
     let combinedMode: Bool
     let settingsScope: UsageDisplayTab?
+    let serviceVisibility: Binding<Bool>?
 
     @State private var selectedTab: SettingsTab = .general
     @State private var showCategoryTabs = true
@@ -58,13 +59,15 @@ struct SettingsView: View {
         saveOnDisappear: Bool = false,
         showsUpdateControls: Bool = true,
         combinedMode: Bool = false,
-        settingsScope: UsageDisplayTab? = nil
+        settingsScope: UsageDisplayTab? = nil,
+        serviceVisibility: Binding<Bool>? = nil
     ) {
         self.topLeadingInset = topLeadingInset
         self.saveOnDisappear = saveOnDisappear
         self.showsUpdateControls = showsUpdateControls
         self.combinedMode = combinedMode
         self.settingsScope = settingsScope
+        self.serviceVisibility = serviceVisibility
     }
 
     var body: some View {
@@ -225,6 +228,12 @@ struct SettingsView: View {
     private var displaySection: some View {
         VStack(alignment: .leading, spacing: 11) {
             SectionHeader(text: "Menu display")
+            if let serviceVisibility, let settingsScope {
+                toggleRow("Show \(settingsScope.rawValue) dashboard", isOn: serviceVisibility)
+                Text("Hiding it removes its dashboard and menu-bar meter. You can turn it back on from the service selector above.")
+                    .font(.system(size: 10))
+                    .foregroundColor(GPTTheme.textSecondary)
+            }
             if !combinedMode {
                 toggleRow("Show Codex and ChatGPT tabs", isOn: $showCategoryTabs)
             }

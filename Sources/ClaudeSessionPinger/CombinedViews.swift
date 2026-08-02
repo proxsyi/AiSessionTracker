@@ -13,15 +13,57 @@ enum CombinedServiceTab: String, CaseIterable, Identifiable {
 @MainActor
 final class CombinedSelectionStore: ObservableObject {
     private static let selectedTabKey = "combinedSelectedServiceTab"
+    private static let claudeVisibleKey = "combinedClaudeVisible"
+    private static let codexVisibleKey = "combinedCodexVisible"
+    private static let chatGPTVisibleKey = "combinedChatGPTVisible"
 
     @Published var selectedTab: CombinedServiceTab {
-        didSet { UserDefaults.standard.set(selectedTab.rawValue, forKey: Self.selectedTabKey) }
+        didSet {
+            ensureSelectedTabIsVisible()
+            UserDefaults.standard.set(selectedTab.rawValue, forKey: Self.selectedTabKey)
+        }
     }
+    @Published var claudeVisible: Bool { didSet { saveVisibility() } }
+    @Published var codexVisible: Bool { didSet { saveVisibility() } }
+    @Published var chatGPTVisible: Bool { didSet { saveVisibility() } }
 
     init() {
+        let defaults = UserDefaults.standard
         selectedTab = CombinedServiceTab(
-            rawValue: UserDefaults.standard.string(forKey: Self.selectedTabKey) ?? ""
+            rawValue: defaults.string(forKey: Self.selectedTabKey) ?? ""
         ) ?? .claude
+        claudeVisible = defaults.object(forKey: Self.claudeVisibleKey) as? Bool ?? true
+        codexVisible = defaults.object(forKey: Self.codexVisibleKey) as? Bool ?? true
+        chatGPTVisible = defaults.object(forKey: Self.chatGPTVisibleKey) as? Bool ?? true
+        ensureSelectedTabIsVisible()
+    }
+
+    var visibleTabs: [CombinedServiceTab] {
+        CombinedServiceTab.allCases.filter(isVisible)
+    }
+
+    func isVisible(_ tab: CombinedServiceTab) -> Bool {
+        switch tab {
+        case .claude: return claudeVisible
+        case .codex: return codexVisible
+        case .chatGPT: return chatGPTVisible
+        }
+    }
+
+    private func saveVisibility() {
+        // A tracker with no visible dashboard cannot be opened or configured.
+        if !claudeVisible && !codexVisible && !chatGPTVisible { claudeVisible = true }
+        let defaults = UserDefaults.standard
+        defaults.set(claudeVisible, forKey: Self.claudeVisibleKey)
+        defaults.set(codexVisible, forKey: Self.codexVisibleKey)
+        defaults.set(chatGPTVisible, forKey: Self.chatGPTVisibleKey)
+        ensureSelectedTabIsVisible()
+    }
+
+    private func ensureSelectedTabIsVisible() {
+        if !isVisible(selectedTab), let firstVisible = visibleTabs.first {
+            selectedTab = firstVisible
+        }
     }
 }
 
@@ -95,7 +137,7 @@ struct CombinedMenuBarContentView: View {
 
     private var serviceTabs: some View {
         Picker("Service", selection: $selection.selectedTab) {
-            ForEach(CombinedServiceTab.allCases) { tab in
+            ForEach(selection.visibleTabs) { tab in
                 Text(tab.rawValue).tag(tab)
             }
         }
@@ -142,13 +184,16 @@ struct CombinedSettingsView: View {
                     saveOnDisappear: true,
                     frameWidth: 500,
                     frameHeight: 640,
-                    showsUpdateControls: false
+                    showsUpdateControls: false,
+                    serviceVisibility: $selection.claudeVisible,
+                    serviceDisplayName: "Claude"
                 )
             } else {
                 GPTCombinedSettingsContent(
                     feature: gptFeature,
                     tab: selection.selectedTab == .codex ? .codex : .chatGPT,
-                    topLeadingInset: 188
+                    topLeadingInset: 188,
+                    serviceVisibility: selection.selectedTab == .codex ? $selection.codexVisible : $selection.chatGPTVisible
                 )
             }
 
@@ -162,6 +207,13 @@ struct CombinedSettingsView: View {
             .frame(width: 180, height: 34)
             .padding(.leading, 8)
             .padding(.top, 8)
+
+            Text("Turn off a dashboard to remove its tab and menu-bar meter. At least one dashboard stays visible.")
+                .font(.system(size: 9))
+                .foregroundStyle(ClaudeTheme.textSecondary)
+                .frame(width: 180, alignment: .leading)
+                .padding(.leading, 8)
+                .padding(.top, 49)
         }
         .frame(width: 500, height: 640)
         .onAppear {

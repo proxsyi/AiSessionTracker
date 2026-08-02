@@ -222,12 +222,16 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     /// At 100%, crimson and a live reset countdown replace the percentage.
     private func updateButton() {
         guard let button = statusItem.button else { return }
-        let claudePercent = appState.usage?.sessionPercent
-        let gptPercent = gptFeature.codexWeeklyPercent
+        let claudePercent = selection.claudeVisible ? appState.usage?.sessionPercent : nil
+        let gptPercent = selection.codexVisible ? gptFeature.codexWeeklyPercent : nil
         button.image = Self.dualUsageImage(claudePercent: claudePercent, gptPercent: gptPercent)
-        button.title = ""
-        let claudeText = claudePercent.map { "Claude session \($0)%" } ?? "Claude unavailable"
-        let gptText = gptPercent.map { "Codex weekly \($0)%" } ?? "Codex unavailable"
+        let meter = [
+            claudePercent.map { "C \($0)%" },
+            gptPercent.map { "G \($0)%" }
+        ].compactMap { $0 }.joined(separator: " · ")
+        button.title = meter.isEmpty ? "" : " \(meter)"
+        let claudeText = selection.claudeVisible ? (claudePercent.map { "Claude session \($0)%" } ?? "Claude unavailable") : "Claude hidden"
+        let gptText = selection.codexVisible ? (gptPercent.map { "Codex weekly \($0)%" } ?? "Codex unavailable") : "Codex hidden"
         button.toolTip = "Session Tracker · \(claudeText) · \(gptText)"
     }
 
@@ -247,32 +251,40 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         image.lockFocus()
         defer { image.unlockFocus() }
 
-        let ringColor = gptUsageColor(percent: gptPercent)
-        ringColor.setStroke()
-        let ring = NSBezierPath()
-        ring.appendArc(
-            withCenter: NSPoint(x: 9, y: 9),
-            radius: 6.4,
-            startAngle: 38,
-            endAngle: 326,
-            clockwise: false
-        )
-        ring.lineWidth = 1.8
-        ring.lineCapStyle = .round
-        ring.stroke()
+        if let gptPercent {
+            gptUsageColor(percent: gptPercent).setStroke()
+            let ring = NSBezierPath()
+            ring.appendArc(
+                withCenter: NSPoint(x: 9, y: 9),
+                radius: 6.4,
+                startAngle: 38,
+                endAngle: 326,
+                clockwise: false
+            )
+            ring.lineWidth = 1.8
+            ring.lineCapStyle = .round
+            ring.stroke()
+        }
 
-        usageColor(percent: claudePercent).setFill()
-        let star = NSBezierPath()
-        let points: [NSPoint] = [
-            NSPoint(x: 9, y: 4.9), NSPoint(x: 10.1, y: 7.9),
-            NSPoint(x: 13.1, y: 9), NSPoint(x: 10.1, y: 10.1),
-            NSPoint(x: 9, y: 13.1), NSPoint(x: 7.9, y: 10.1),
-            NSPoint(x: 4.9, y: 9), NSPoint(x: 7.9, y: 7.9)
-        ]
-        star.move(to: points[0])
-        for point in points.dropFirst() { star.line(to: point) }
-        star.close()
-        star.fill()
+        if let claudePercent {
+            usageColor(percent: claudePercent).setFill()
+            let star = NSBezierPath()
+            let points: [NSPoint] = [
+                NSPoint(x: 9, y: 4.9), NSPoint(x: 10.1, y: 7.9),
+                NSPoint(x: 13.1, y: 9), NSPoint(x: 10.1, y: 10.1),
+                NSPoint(x: 9, y: 13.1), NSPoint(x: 7.9, y: 10.1),
+                NSPoint(x: 4.9, y: 9), NSPoint(x: 7.9, y: 7.9)
+            ]
+            star.move(to: points[0])
+            for point in points.dropFirst() { star.line(to: point) }
+            star.close()
+            star.fill()
+        }
+
+        if claudePercent == nil && gptPercent == nil {
+            NSColor.systemGray.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 7.1, y: 7.1, width: 3.8, height: 3.8)).fill()
+        }
 
         image.isTemplate = false
         return image

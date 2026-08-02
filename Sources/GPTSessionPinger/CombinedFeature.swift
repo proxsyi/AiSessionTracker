@@ -89,11 +89,13 @@ public struct GPTCombinedSettingsContent: View {
     @ObservedObject private var feature: GPTFeatureState
     private let topLeadingInset: CGFloat
     private let tab: GPTCombinedTab
+    private let serviceVisibility: Binding<Bool>?
 
-    public init(feature: GPTFeatureState, tab: GPTCombinedTab, topLeadingInset: CGFloat) {
+    public init(feature: GPTFeatureState, tab: GPTCombinedTab, topLeadingInset: CGFloat, serviceVisibility: Binding<Bool>? = nil) {
         self.feature = feature
         self.tab = tab
         self.topLeadingInset = topLeadingInset
+        self.serviceVisibility = serviceVisibility
     }
 
     public var body: some View {
@@ -102,7 +104,8 @@ public struct GPTCombinedSettingsContent: View {
             saveOnDisappear: true,
             showsUpdateControls: false,
             combinedMode: true,
-            settingsScope: tab == .codex ? .codex : .chatGPT
+            settingsScope: tab == .codex ? .codex : .chatGPT,
+            serviceVisibility: serviceVisibility
         )
             .environmentObject(feature.settings)
             .environmentObject(feature.history)

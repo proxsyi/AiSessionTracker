@@ -28,6 +28,8 @@ struct SettingsView: View {
     let frameWidth: CGFloat
     let frameHeight: CGFloat
     let showsUpdateControls: Bool
+    let serviceVisibility: Binding<Bool>?
+    let serviceDisplayName: String?
 
     @State private var sessionKeyInput = ""
     @State private var organizationID = ""
@@ -66,13 +68,17 @@ struct SettingsView: View {
         saveOnDisappear: Bool = false,
         frameWidth: CGFloat = 460,
         frameHeight: CGFloat = 600,
-        showsUpdateControls: Bool = true
+        showsUpdateControls: Bool = true,
+        serviceVisibility: Binding<Bool>? = nil,
+        serviceDisplayName: String? = nil
     ) {
         self.topLeadingInset = topLeadingInset
         self.saveOnDisappear = saveOnDisappear
         self.frameWidth = frameWidth
         self.frameHeight = frameHeight
         self.showsUpdateControls = showsUpdateControls
+        self.serviceVisibility = serviceVisibility
+        self.serviceDisplayName = serviceDisplayName
     }
 
     var body: some View {
@@ -214,6 +220,16 @@ struct SettingsView: View {
             }
         }
         .claudeGlassContainer()
+    }
+
+    @ViewBuilder
+    private var serviceVisibilityRow: some View {
+        if let serviceVisibility, let serviceDisplayName {
+            toggleRow("Show \(serviceDisplayName) dashboard", isOn: serviceVisibility)
+            Text("Hiding it removes its dashboard and menu-bar meter. You can turn it back on from the service selector above.")
+                .font(.system(size: 10))
+                .foregroundColor(ClaudeTheme.textSecondary)
+        }
     }
 
     // MARK: - Reusable rows
@@ -483,6 +499,7 @@ struct SettingsView: View {
     private var usageBarsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Usage bars")
+            serviceVisibilityRow
             toggleRow("Session (5 hour)", isOn: $showSessionBar)
             toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
             toggleRow("Fable 5 weekly", isOn: $showFable5Bar)

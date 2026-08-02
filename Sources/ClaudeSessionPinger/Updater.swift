@@ -6,6 +6,7 @@ enum UpdaterError: LocalizedError {
     case downloadFailed(String)
     case unzipFailed
     case noAppFoundInArchive
+    case bundleIdentifierMismatch
 
     var errorDescription: String? {
         switch self {
@@ -17,6 +18,8 @@ enum UpdaterError: LocalizedError {
             return "Couldn't unzip the downloaded update."
         case .noAppFoundInArchive:
             return "The downloaded update didn't contain an app bundle."
+        case .bundleIdentifierMismatch:
+            return "The downloaded update belongs to a different app and was not installed."
         }
     }
 }
@@ -62,6 +65,9 @@ enum Updater {
         }
 
         let currentAppPath = URL(fileURLWithPath: Bundle.main.bundlePath)
+        guard Bundle(url: newAppPath)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
+            throw UpdaterError.bundleIdentifierMismatch
+        }
         let scriptURL = workDir.appendingPathComponent("install.sh")
         let script = """
         #!/bin/bash
