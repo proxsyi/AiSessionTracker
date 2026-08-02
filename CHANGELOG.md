@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.0.4
+
+- Made Command-I a strict physical press cycle: the first key-down toggles the tracker, repeated or duplicated callbacks are ignored, and key-up only arms the next press.
+- Wait for the accessory app to activate before presenting the keyboard-opened popover, protect it from macOS dismissing it on the shortcut's key-up, and retain normal outside-click and Escape dismissal.
+
 ## v2.0.3
 
 - Fixed Command-I opening and immediately closing by removing the second focused-app callback; each physical press now travels through one global key-up handler and produces exactly one toggle.

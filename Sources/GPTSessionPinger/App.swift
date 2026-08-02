@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsShortcutMonitor: Any?
     private var menuShortcutSettingObserver: NSObjectProtocol?
     private var menuShortcutTask: Task<Void, Never>?
+    private var menuShortcutPressCycle = ShortcutPressCycle()
     private var menuTestWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -104,19 +105,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// KeyboardShortcuts owns the low-level Carbon registration and delivers
-    /// one key-up event per physical Command-I press without requiring Input
-    /// Monitoring or Accessibility permission.
+    /// KeyboardShortcuts owns the low-level Carbon registration. We toggle on
+    /// the first key-down and use key-up only to reset the physical press.
+    /// This remains one toggle even when macOS repeats an event while the
+    /// menu-bar popover is taking focus.
     private func updateMenuShortcutListener() {
         menuShortcutTask?.cancel()
         menuShortcutTask = nil
+        menuShortcutPressCycle.reset()
         guard settings.enableCommandIShortcut else { return }
 
         menuShortcutTask = Task { [weak self] in
             for await eventType in KeyboardShortcuts.events(for: .toggleGPTTracker) {
                 guard !Task.isCancelled else { break }
-                guard eventType == .keyUp else { continue }
-                self?.handleMenuShortcut()
+                guard let self else { break }
+                let event: ShortcutPressCycle.Event = eventType == .keyDown ? .keyDown : .keyUp
+                if self.menuShortcutPressCycle.handle(event) {
+                    self.handleMenuShortcut()
+                }
+                if eventType == .keyUp {
+                    self.appState.completePopoverShortcutPress?()
+                }
             }
         }
     }
@@ -125,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindowController?.isShowing == true {
             appState.toggleSettingsWindow?()
         } else {
-            appState.requestTogglePopover?()
+            appState.requestTogglePopoverFromShortcut?()
         }
     }
 
