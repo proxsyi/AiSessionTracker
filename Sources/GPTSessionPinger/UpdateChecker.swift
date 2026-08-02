@@ -1,15 +1,16 @@
 import Foundation
 
 /// Where this app checks for new releases: the public GitHub Releases API
-/// for this repo. Each release must be tagged like "v1.5.0" and have a
+/// for this repo. Each GPT release must be tagged like "gpt-v1.17.1" and have a
 /// zipped app bundle attached as an asset named `assetName` below --
 /// `Scripts/release.sh` builds and publishes that automatically. Because the
 /// repo is public, no token or auth is needed to read releases.
 enum UpdateFeed {
-    /// This branch publishes independently, so a shared GitHub Releases feed
-    /// cannot safely identify the correct build. Updates remain manual until
-    /// the GPT feed has a dedicated release endpoint.
-    static let latestReleaseAPIURL: URL? = nil
+    /// GPT releases share the repository with Claude releases, so this app
+    /// reads the release list and accepts only `gpt-v*` tags carrying the GPT
+    /// asset. The two installed apps can therefore update independently.
+    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases?per_page=30")!
+    static let tagPrefix = "gpt-v"
     static let assetName = "GPTSessionPinger.app.zip"
 }
 
@@ -68,11 +69,8 @@ enum UpdateChecker {
     }
 
     static func check(currentVersion: String) async -> UpdateCheckResult {
-        guard let releaseURL = UpdateFeed.latestReleaseAPIURL else {
-            return .failed("GPT update feed is not configured yet.")
-        }
         do {
-            var request = URLRequest(url: releaseURL)
+            var request = URLRequest(url: UpdateFeed.latestReleaseAPIURL)
             request.timeoutInterval = 15
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -86,8 +84,14 @@ enum UpdateChecker {
                 }
                 return .failed("GitHub returned an unexpected response (\(http.statusCode)).")
             }
-            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
-            let version = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
+            let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+            guard let release = releases.first(where: { release in
+                release.tag_name.hasPrefix(UpdateFeed.tagPrefix)
+                    && release.assets.contains(where: { $0.name == UpdateFeed.assetName })
+            }) else {
+                return .failed("No GPT releases found yet.")
+            }
+            let version = String(release.tag_name.dropFirst(UpdateFeed.tagPrefix.count))
             guard isNewer(version, than: currentVersion) else {
                 return .upToDate
             }

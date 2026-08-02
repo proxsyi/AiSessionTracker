@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.17.1
+
+- Fixed ChatGPT pings end to end: login now captures the web access token and account ID, requests include current bearer/device/sentinel context, and browser-verification turns run through ChatGPT's signed-in web page.
+- Reuse the dedicated ChatGPT conversation's current message node, automatically replace a deleted conversation, and verify replies before recording a successful ping.
+- Read the real five-hour and weekly windows from ChatGPT's `/backend-api/wham/usage` response and load the signed-in account's model catalog with the required authorization headers.
+- Corrected the GPT 5.4 mini default to the account-reported `gpt-5-4-t-mini` slug and migrated the invalid preview slug automatically.
+- Added an independent `gpt-v*` GitHub release feed and GPT-specific release asset so GPT and Claude builds cannot install each other's updates.
+- Made reopening the menu-bar app present Settings for reliable UI testing and fixed Command-I reopening Settings after that window had already closed.
+
 ## v1.17.0
 
 - Added the GPT Session Pinger branch: a ChatGPT consumer-web version with built-in ChatGPT login, dedicated-conversation reuse, scheduled and manual pings, retries, notifications, activity history, and the existing closed-lid wake workflow.
