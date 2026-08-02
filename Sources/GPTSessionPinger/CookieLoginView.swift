@@ -52,6 +52,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         private weak var webView: WKWebView?
         private var pollTimer: Timer?
         private var didCapture = false
+        private var isValidatingCookies = false
         private var popupWindows: [NSWindow] = []
 
         init(onCookiesCaptured: @escaping (String, String?, String) -> Void, onStateChange: @escaping (CookieLoginState) -> Void) {
@@ -161,27 +162,45 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         // MARK: Cookie polling
 
         private func checkCookies() {
-            guard !didCapture, let store = webView?.configuration.websiteDataStore.httpCookieStore else { return }
+            guard !didCapture, !isValidatingCookies,
+                  let store = webView?.configuration.websiteDataStore.httpCookieStore else { return }
             store.getAllCookies { [weak self] cookies in
-                guard let self, !self.didCapture else { return }
+                guard let self, !self.didCapture, !self.isValidatingCookies else { return }
                 let chatGPTCookies = cookies.filter { $0.domain.contains("chatgpt.com") || $0.domain.contains("openai.com") }
                 guard !chatGPTCookies.isEmpty,
                       let sessionCookie = chatGPTCookies.first(where: { !$0.value.isEmpty && ($0.name.contains("session") || $0.name.contains("auth") || $0.name == "_account") }) else {
                     return
                 }
 
-                self.didCapture = true
-                self.stopPolling()
                 let sessionValue = sessionCookie.value
-                // Capture every ChatGPT/OpenAI cookie as a ready-to-send
-                // header so requests use the same authenticated session.
                 let header = chatGPTCookies
                     .map { "\($0.name)=\($0.value)" }
                     .joined(separator: "; ")
-                DispatchQueue.main.async {
+                self.isValidatingCookies = true
+                Task { [weak self] in
+                    let authenticated = await Self.isAuthenticated(cookieHeader: header)
+                    guard let self else { return }
+                    self.isValidatingCookies = false
+                    guard authenticated, !self.didCapture else { return }
+                    // Do not save transient OAuth, account-picker, or CSRF
+                    // cookies. ChatGPT itself must first confirm the session.
+                    self.didCapture = true
+                    self.stopPolling()
                     self.onCookiesCaptured(sessionValue, nil, header)
                 }
             }
+        }
+
+        private static func isAuthenticated(cookieHeader: String) async -> Bool {
+            guard let url = URL(string: "https://chatgpt.com/api/auth/session") else { return false }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 10
+            request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+            request.setValue(desktopSafariUserAgent, forHTTPHeaderField: "User-Agent")
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+            return object["user"] != nil || object["email"] != nil
         }
 
         deinit {
