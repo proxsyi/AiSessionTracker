@@ -176,8 +176,8 @@ final class SettingsStore: ObservableObject {
         // domain. A Claude model slug is never valid for this app, so replace
         // it with the GPT automatic model and persist that correction.
         let normalizedModel = storedModel.lowercased().contains("claude")
-            ? "auto"
-            : (storedModel.isEmpty ? "auto" : storedModel)
+            ? "gpt-5.4-mini"
+            : (storedModel.isEmpty ? "gpt-5.4-mini" : storedModel)
         model = normalizedModel
         if normalizedModel != storedModel {
             defaults.set(normalizedModel, forKey: Keys.model)

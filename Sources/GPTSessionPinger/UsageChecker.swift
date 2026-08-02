@@ -34,7 +34,7 @@ enum UsageError: Error, LocalizedError {
 /// limits vary by plan and model; absent fields remain unavailable rather than
 /// being inferred from message history.
 enum UsageChecker {
-    static let fallbackModels = ["auto", "gpt-5.6", "gpt-5.6-terra", "chat-latest"]
+    static let fallbackModels = ["gpt-5.4-mini"]
 
     static func fetchUsage(sessionKey: String, organizationID: String, cookieHeader: String? = nil) async throws -> GPTUsage {
         _ = sessionKey
@@ -78,7 +78,17 @@ enum UsageChecker {
 
     static func fetchOrganizationID(sessionKey: String, cookieHeader: String? = nil) async -> String? { nil }
     static func fetchAvailableModels(sessionKey: String, organizationID: String, cookieHeader: String? = nil) async -> [String] {
-        fallbackModels
+        _ = sessionKey
+        _ = organizationID
+        guard let cookies = cookieHeader?.trimmingCharacters(in: .whitespacesAndNewlines), !cookies.isEmpty,
+              let url = URL(string: "https://chatgpt.com/backend-api/models") else { return fallbackModels }
+        var request = consumerRequest(url: url, cookies: cookies)
+        request.httpMethod = "GET"
+        guard let (data, response) = try? await perform(request),
+              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) else { return fallbackModels }
+        let models = collectModels(object)
+        return models.isEmpty ? fallbackModels : models
     }
 
     private static func consumerRequest(url: URL, cookies: String) -> URLRequest {
@@ -123,5 +133,21 @@ enum UsageChecker {
         if let epoch = value as? TimeInterval { return Date(timeIntervalSince1970: epoch > 10_000_000_000 ? epoch / 1000 : epoch) }
         if let text = value as? String { return ISO8601DateFormatter().date(from: text) }
         return nil
+    }
+
+    private static func collectModels(_ value: Any) -> [String] {
+        var values = Set<String>()
+        func walk(_ node: Any) {
+            if let dictionary = node as? [String: Any] {
+                for key in ["slug", "model", "id"] {
+                    if let value = dictionary[key] as? String, value.lowercased().hasPrefix("gpt-") {
+                        values.insert(value)
+                    }
+                }
+                dictionary.values.forEach(walk)
+            } else if let array = node as? [Any] { array.forEach(walk) }
+        }
+        walk(value)
+        return values.sorted()
     }
 }
