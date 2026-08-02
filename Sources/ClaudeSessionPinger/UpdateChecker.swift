@@ -6,11 +6,11 @@ import Foundation
 /// `Scripts/release.sh` builds and publishes that automatically. Because the
 /// repo is public, no token or auth is needed to read releases.
 enum UpdateFeed {
-    /// Claude and GPT releases share the repository. Read the release list
-    /// and accept only ordinary `v*` tags carrying the Claude app asset.
+    /// The combined tracker has its own feed, tag prefix, and asset. It can
+    /// therefore never select a standalone Claude or GPT release.
     static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases?per_page=30")!
-    static let tagPrefix = "v"
-    static let assetName = "ClaudeSessionPinger.app.zip"
+    static let tagPrefix = "tracker-v"
+    static let assetName = "SessionTracker.app.zip"
 }
 
 struct UpdateInfo: Equatable {
@@ -88,7 +88,7 @@ enum UpdateChecker {
                 release.tag_name.hasPrefix(UpdateFeed.tagPrefix)
                     && release.assets.contains(where: { $0.name == UpdateFeed.assetName })
             }) else {
-                return .failed("No Claude releases found yet.")
+                return .failed("No Session Tracker releases found yet.")
             }
             let version = String(release.tag_name.dropFirst(UpdateFeed.tagPrefix.count))
             guard isNewer(version, than: currentVersion) else {

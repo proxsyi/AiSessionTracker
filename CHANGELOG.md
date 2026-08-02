@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.2 (combined branch)
+
+- Made Claude, Codex, and ChatGPT dashboards use the same card hierarchy, with service status and refresh in their own card.
+- Added per-dashboard visibility toggles and labeled Claude/Codex menu-bar meters.
+- Gave the combined app its own update feed and blocked any updater from replacing an app with a different bundle identifier.
+
 ## v0.1.1 (combined branch)
 
 - Made the Codex weekly trend accept only validated, server-reported Codex seven-day percentages and split chart lines at weekly resets.

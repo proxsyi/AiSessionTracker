@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let stats = StatsStore()
     let selection = CombinedSelectionStore()
     let gptFeature = GPTFeatureState()
-    lazy var appState = AppState(settings: settings, stats: stats, updatesEnabled: false)
+    lazy var appState = AppState(settings: settings, stats: stats, updatesEnabled: true)
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?

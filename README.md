@@ -1,21 +1,14 @@
 # Session Tracker
 
-A combined macOS menu bar app with three dashboards: Claude, Codex, and ChatGPT.
+Three independent macOS menu-bar apps live in this repository:
 
-## What it combines
+- **Claude Session Pinger** tracks Claude session and weekly limits, and can ping on a schedule.
+- **GPT Usage Tracker** shows the ChatGPT and Codex limits your account reports.
+- **Session Tracker** combines Claude, Codex, and ChatGPT into three switchable dashboards.
 
-- **Claude** keeps the complete Session Pinger experience: browser login, live session and weekly usage, scheduled pings, alerts, activity, wake support, and model selection.
-- **Codex** shows its rolling and weekly usage windows, credits, code-review limits, reset times, history, and optional alerts.
-- **ChatGPT** shows every account-reported model and feature allowance, including rolling windows, deep research, uploads, image generation, voice, and other limits when available.
-- Settings open for the currently selected service. A Claude/Codex/ChatGPT selector sits to the left of the matching General, Usage, Alerts, and App sections.
+The combined app keeps credentials and settings separated by service. Its menu-bar star shows Claude session usage; its ring shows Codex weekly usage. You can hide any dashboard from Settings, which also hides its meter.
 
-The menu bar symbol is one combined meter: its inner star follows Claude session usage, while its outer ring follows Codex weekly usage. Each part changes color independently.
-
-## Isolation
-
-Session Tracker uses its own bundle identifier (`com.proxsyi.sessiontracker`) and app bundle. Claude and GPT retain separate preferences and Keychain services, so their credentials and settings cannot overwrite one another. Building this branch does not remove either standalone app.
-
-## Build
+## Local build
 
 Requires macOS 13+ and Xcode command-line tools.
 
@@ -24,4 +17,12 @@ swift test
 ./Scripts/build_app.sh
 ```
 
-The signed app is written to `dist/Session Tracker.app`.
+The local development build is written to `dist/Session Tracker.app`.
+
+## Public release
+
+Public builds require a **Developer ID Application** certificate and a stored
+`notarytool` keychain profile. Apple Development certificates are for local
+testing and do not provide a notarized public download. Each app has its own
+stable bundle ID, release tag prefix, and update zip; release all three
+together as described in [AGENTS.md](AGENTS.md).
