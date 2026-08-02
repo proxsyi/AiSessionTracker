@@ -33,6 +33,7 @@ struct SettingsView: View {
     let saveOnDisappear: Bool
     let showsUpdateControls: Bool
     let combinedMode: Bool
+    let settingsScope: UsageDisplayTab?
 
     @State private var selectedTab: SettingsTab = .general
     @State private var showCategoryTabs = true
@@ -56,12 +57,14 @@ struct SettingsView: View {
         topLeadingInset: CGFloat = 0,
         saveOnDisappear: Bool = false,
         showsUpdateControls: Bool = true,
-        combinedMode: Bool = false
+        combinedMode: Bool = false,
+        settingsScope: UsageDisplayTab? = nil
     ) {
         self.topLeadingInset = topLeadingInset
         self.saveOnDisappear = saveOnDisappear
         self.showsUpdateControls = showsUpdateControls
         self.combinedMode = combinedMode
+        self.settingsScope = settingsScope
     }
 
     var body: some View {
@@ -96,14 +99,64 @@ struct SettingsView: View {
     }
 
     private var tabBar: some View {
-        Picker("Settings section", selection: $selectedTab) {
-            ForEach(SettingsTab.allCases) { tab in
-                Label(tab.rawValue, systemImage: tab.symbol).tag(tab)
+        GeometryReader { proxy in
+            if #available(macOS 26.0, *) {
+                let railGlass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
+                let tabCount = CGFloat(SettingsTab.allCases.count)
+                let indicatorWidth = max((proxy.size.width - 8) / tabCount, 1)
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(GPTTheme.accent.opacity(0.88))
+                        .overlay(Capsule(style: .continuous).strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75))
+                        .frame(width: indicatorWidth, height: 30)
+                        .offset(x: indicatorWidth * CGFloat(selectedTabIndex))
+                        .animation(.easeInOut(duration: 0.20), value: selectedTab)
+                    HStack(spacing: 0) {
+                        ForEach(SettingsTab.allCases) { tab in
+                            Button { selectTab(tab) } label: {
+                                Label(tab.rawValue, systemImage: tab.symbol)
+                                    .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 7)
+                                    .contentShape(Capsule(style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(selectedTab == tab ? Color.white : GPTTheme.textSecondary)
+                        }
+                    }
+                }
+                .padding(4)
+                .frame(maxWidth: .infinity)
+                .contentShape(Capsule(style: .continuous))
+                .glassEffect(railGlass, in: Capsule(style: .continuous))
+                .simultaneousGesture(tabDragGesture(width: proxy.size.width))
+            } else {
+                Picker("Settings section", selection: $selectedTab) {
+                    ForEach(SettingsTab.allCases) { tab in
+                        Label(tab.rawValue, systemImage: tab.symbol).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(height: 34)
+        .frame(height: 42)
+    }
+
+    private var selectedTabIndex: Int { SettingsTab.allCases.firstIndex(of: selectedTab) ?? 0 }
+
+    private func selectTab(_ tab: SettingsTab) {
+        guard tab != selectedTab else { return }
+        selectedTab = tab
+    }
+
+    private func tabDragGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 3).onChanged { value in
+            let available = max(width - 8, 1)
+            let x = min(max(value.location.x - 4, 0), available - 1)
+            let index = min(Int(x / (available / CGFloat(SettingsTab.allCases.count))), SettingsTab.allCases.count - 1)
+            selectTab(SettingsTab.allCases[index])
+        }
     }
 
     @ViewBuilder
@@ -117,7 +170,9 @@ struct SettingsView: View {
                 trackedUsageSection.padding(14).glassPanel()
                 usageExplanationSection.padding(14).glassPanel()
             case .alerts:
-                weeklyAlertsSection.padding(14).glassPanel()
+                if settingsScope != .chatGPT {
+                    weeklyAlertsSection.padding(14).glassPanel()
+                }
                 optionalAlertsSection.padding(14).glassPanel()
                 serviceAlertsSection.padding(14).glassPanel()
             case .app:
@@ -173,11 +228,11 @@ struct SettingsView: View {
             if !combinedMode {
                 toggleRow("Show Codex and ChatGPT tabs", isOn: $showCategoryTabs)
             }
-            toggleRow("Show sampled usage chart", isOn: $showHistoryChart)
+            if settingsScope != .chatGPT {
+                toggleRow("Show Codex weekly trend", isOn: $showHistoryChart)
+            }
             toggleRow("Automatically show newly discovered limits", isOn: $automaticallyShowNewUsageTracks)
-            Text(combinedMode
-                 ? "Session Tracker keeps Codex and ChatGPT as separate top-level tabs. Charts are sampled locally while this Mac is running."
-                 : "With tabs off, the menu combines Codex and ChatGPT into one dashboard. Charts are sampled locally while this Mac is running.")
+            Text(displayExplanation)
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
     }
@@ -187,13 +242,8 @@ struct SettingsView: View {
             SectionHeader(text: "Tracked usage")
             Text("Every known or account-reported counter can be hidden independently. Rolling windows remain separate from weekly, monthly, credit and remaining-task limits.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            groupTitle("Codex and agentic")
-            ForEach(usageSettingRows.filter { $0.scope == .codex || $0.scope == .workspace }) { row in
-                usageToggle(row)
-            }
-            Divider()
-            groupTitle("ChatGPT")
-            ForEach(usageSettingRows.filter { $0.scope == .chatGPTModel || $0.scope == .chatGPTFeature }) { row in
+            groupTitle(settingsScope?.rawValue ?? "Codex and ChatGPT")
+            ForEach(scopedUsageRows) { row in
                 usageToggle(row)
             }
         }
@@ -204,7 +254,7 @@ struct SettingsView: View {
             SectionHeader(text: "Tracking behavior")
             Text("The tracker displays exactly what ChatGPT reports. It never invents a percentage or substitutes one window for another.")
                 .font(.system(size: 11)).foregroundColor(GPTTheme.textPrimary)
-            Text("Some documented limits—especially rolling uploads, voice, video and screen share—may only appear when ChatGPT exposes a counter to this account. Their toggles remain ready but show Not reported until then.")
+            Text(usageTrackingExplanation)
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
     }
@@ -228,7 +278,7 @@ struct SettingsView: View {
                 ForEach(SettingsStore.availableThresholds, id: \.self) { Text("\($0)%").tag($0) }
             }
             .pickerStyle(.menu)
-            ForEach(usageSettingRows.filter { $0.id != "codex-weekly" && $0.isReported }) { row in
+            ForEach(scopedUsageRows.filter { $0.id != "codex-weekly" && $0.isReported }) { row in
                 toggleRow(row.title, isOn: alertBinding(for: row.id))
             }
         }
@@ -252,10 +302,12 @@ struct SettingsView: View {
             toggleRow("Launch at login", isOn: $launchAtLogin)
             toggleRow("Command-I opens the tracker", isOn: $enableCommandIShortcut)
             toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass)
-            HStack {
-                Button("Clear sampled history") { history.clear() }.gptGhostButton()
-                Spacer()
-                Text("Does not affect ChatGPT").font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
+            if settingsScope != .chatGPT {
+                HStack {
+                    Button("Clear Codex trend history") { history.clear() }.gptGhostButton()
+                    Spacer()
+                    Text("Local samples only").font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
+                }
             }
         }
     }
@@ -310,6 +362,43 @@ struct SettingsView: View {
             ))
         }
         return rows
+    }
+
+    private var scopedUsageRows: [UsageSettingRow] {
+        usageSettingRows.filter { row in
+            switch settingsScope {
+            case .codex:
+                return row.scope == .codex || row.scope == .workspace
+            case .chatGPT:
+                return row.scope == .chatGPTModel || row.scope == .chatGPTFeature
+            case nil:
+                return true
+            }
+        }
+    }
+
+    private var displayExplanation: String {
+        switch settingsScope {
+        case .codex:
+            return "The trend plots only server-reported Codex weekly percentages. It is sampled locally while this Mac is running and never mixes in rolling-window or ChatGPT counters."
+        case .chatGPT:
+            return "ChatGPT displays only account-reported model and feature limits. Session Tracker keeps it separate from Codex usage."
+        case nil:
+            return combinedMode
+                ? "Session Tracker keeps Codex and ChatGPT as separate top-level tabs."
+                : "With tabs off, the menu combines Codex and ChatGPT into one dashboard."
+        }
+    }
+
+    private var usageTrackingExplanation: String {
+        switch settingsScope {
+        case .codex:
+            return "Codex weekly, rolling, code-review, credit, and workspace limits remain separate. The trend is built only from the reported Codex weekly percentage."
+        case .chatGPT:
+            return "Some documented limits—especially rolling uploads, voice, video and screen share—appear only when ChatGPT exposes a counter to this account."
+        case nil:
+            return "Rolling windows, weekly windows, model limits, feature allowances, credits, and remaining-task counters remain separate."
+        }
     }
 
     private func usageToggle(_ row: UsageSettingRow) -> some View {

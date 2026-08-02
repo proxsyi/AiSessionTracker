@@ -120,8 +120,8 @@ struct MenuBarContentView: View {
             if let reset = primaryResetDate(for: tracks) {
                 resetCountdown(reset).trackerMenuCard()
             }
-            if settings.showHistoryChart, let primary = primaryTrack(for: tracks) {
-                historyChart(for: primary).trackerMenuCard()
+            if tab == .codex, settings.showHistoryChart, let weekly = visibleWeeklyTrack {
+                historyChart(for: weekly).trackerMenuCard()
             }
         }
     }
@@ -142,8 +142,8 @@ struct MenuBarContentView: View {
             if let reset = primaryResetDate(for: visibleTracks) {
                 resetCountdown(reset).trackerMenuCard()
             }
-            if settings.showHistoryChart, let primary = primaryTrack(for: visibleTracks) {
-                historyChart(for: primary).trackerMenuCard()
+            if settings.showHistoryChart, let weekly = visibleWeeklyTrack {
+                historyChart(for: weekly).trackerMenuCard()
             }
         }
     }
@@ -235,16 +235,24 @@ struct MenuBarContentView: View {
     private func historyChart(for track: GPTUsageTrack) -> some View {
         let points = history.points(for: track.preferenceID, since: now.addingTimeInterval(-7 * 86_400))
         return VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(text: "7-day sampled trend")
+            SectionHeader(text: "Codex weekly trend")
             if points.count < 2 {
                 Text("The chart will appear after another refresh.")
                     .font(.system(size: 10))
                     .foregroundColor(GPTTheme.textSecondary)
             } else {
                 Chart(points) { point in
-                    AreaMark(x: .value("Time", point.date), y: .value("Usage", point.percent))
+                    AreaMark(
+                        x: .value("Time", point.date),
+                        y: .value("Usage", point.percent),
+                        series: .value("Weekly window", point.series)
+                    )
                         .foregroundStyle(usageColor(track.usedPercent).opacity(0.18))
-                    LineMark(x: .value("Time", point.date), y: .value("Usage", point.percent))
+                    LineMark(
+                        x: .value("Time", point.date),
+                        y: .value("Usage", point.percent),
+                        series: .value("Weekly window", point.series)
+                    )
                         .foregroundStyle(usageColor(track.usedPercent))
                 }
                 .chartYScale(domain: 0...100)
@@ -252,7 +260,9 @@ struct MenuBarContentView: View {
                 .chartYAxis(.hidden)
                 .frame(height: 54)
             }
-            Text(track.title).font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
+            Text("Server-reported weekly percentage · sampled locally while running")
+                .font(.system(size: 9))
+                .foregroundColor(GPTTheme.textSecondary)
         }
     }
 

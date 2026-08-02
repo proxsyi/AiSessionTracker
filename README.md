@@ -7,7 +7,7 @@ A combined macOS menu bar app with three dashboards: Claude, Codex, and ChatGPT.
 - **Claude** keeps the complete Session Pinger experience: browser login, live session and weekly usage, scheduled pings, alerts, activity, wake support, and model selection.
 - **Codex** shows its rolling and weekly usage windows, credits, code-review limits, reset times, history, and optional alerts.
 - **ChatGPT** shows every account-reported model and feature allowance, including rolling windows, deep research, uploads, image generation, voice, and other limits when available.
-- Settings open for the currently selected service. A Claude/GPT selector sits to the left of the existing General, Usage, Alerts, and App sections.
+- Settings open for the currently selected service. A Claude/Codex/ChatGPT selector sits to the left of the matching General, Usage, Alerts, and App sections.
 
 The menu bar symbol is one combined meter: its inner star follows Claude session usage, while its outer ring follows Codex weekly usage. Each part changes color independently.
 

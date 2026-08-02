@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.1 (combined branch)
+
+- Made the Codex weekly trend accept only validated, server-reported Codex seven-day percentages and split chart lines at weekly resets.
+- Renamed the chart and its explanation so local sampling and app-closed gaps are explicit.
+- Added a Codex-only toggle for the weekly trend and removed trend charts from ChatGPT limits.
+- Split combined Settings into Claude, Codex, and ChatGPT service tabs with scoped usage and alert controls.
+- Matched the GPT settings rail interaction and Liquid Glass styling to the Claude settings rail.
+
 ## v0.1.0 (combined branch)
 
 - Combined the complete Claude Session Pinger and GPT Usage Tracker into one separately identified, Apple-signed Session Tracker app.

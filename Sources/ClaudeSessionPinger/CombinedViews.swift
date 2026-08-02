@@ -129,48 +129,37 @@ struct CombinedMenuBarContentView: View {
     }
 }
 
-private enum CombinedSettingsSide: String, CaseIterable, Identifiable {
-    case claude = "Claude"
-    case gpt = "GPT"
-    var id: String { rawValue }
-}
-
 struct CombinedSettingsView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var selection: CombinedSelectionStore
     @ObservedObject var gptFeature: GPTFeatureState
 
-    private var settingsSide: Binding<CombinedSettingsSide> {
-        Binding(
-            get: { selection.selectedTab == .claude ? .claude : .gpt },
-            set: { newSide in
-                selection.selectedTab = newSide == .claude ? .claude : .codex
-            }
-        )
-    }
-
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if settingsSide.wrappedValue == .claude {
+            if selection.selectedTab == .claude {
                 SettingsView(
-                    topLeadingInset: 126,
+                    topLeadingInset: 188,
                     saveOnDisappear: true,
                     frameWidth: 500,
                     frameHeight: 640,
                     showsUpdateControls: false
                 )
             } else {
-                GPTCombinedSettingsContent(feature: gptFeature, topLeadingInset: 126)
+                GPTCombinedSettingsContent(
+                    feature: gptFeature,
+                    tab: selection.selectedTab == .codex ? .codex : .chatGPT,
+                    topLeadingInset: 188
+                )
             }
 
-            Picker("Settings service", selection: settingsSide) {
-                ForEach(CombinedSettingsSide.allCases) { side in
-                    Text(side.rawValue).tag(side)
+            Picker("Settings service", selection: $selection.selectedTab) {
+                ForEach(CombinedServiceTab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 118, height: 34)
+            .frame(width: 180, height: 34)
             .padding(.leading, 8)
             .padding(.top, 8)
         }

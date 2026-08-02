@@ -88,9 +88,11 @@ public struct GPTCombinedMenuContent: View {
 public struct GPTCombinedSettingsContent: View {
     @ObservedObject private var feature: GPTFeatureState
     private let topLeadingInset: CGFloat
+    private let tab: GPTCombinedTab
 
-    public init(feature: GPTFeatureState, topLeadingInset: CGFloat) {
+    public init(feature: GPTFeatureState, tab: GPTCombinedTab, topLeadingInset: CGFloat) {
         self.feature = feature
+        self.tab = tab
         self.topLeadingInset = topLeadingInset
     }
 
@@ -99,7 +101,8 @@ public struct GPTCombinedSettingsContent: View {
             topLeadingInset: topLeadingInset,
             saveOnDisappear: true,
             showsUpdateControls: false,
-            combinedMode: true
+            combinedMode: true,
+            settingsScope: tab == .codex ? .codex : .chatGPT
         )
             .environmentObject(feature.settings)
             .environmentObject(feature.history)
