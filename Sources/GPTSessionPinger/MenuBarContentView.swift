@@ -42,7 +42,7 @@ struct MenuBarContentView: View {
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
-            Text("Session Pinger")
+            Text("GPT Session Pinger")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(GPTTheme.textPrimary)
             Spacer()
