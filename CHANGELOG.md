@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.0.0
+
+- Rebuilt the GPT product as GPT Usage Tracker: a read-only ChatGPT and Codex usage dashboard with no message sending, session starting, schedules, ping activity, or wake support.
+- Added optional Codex and ChatGPT menu tabs, a combined-dashboard mode, independent visibility toggles for every known or newly reported counter, and transparent unavailable states for limits ChatGPT does not expose.
+- Keep Codex rolling five-hour, weekly, Code Review, credits, workspace controls, ChatGPT model windows, Deep Research, images, uploads, storage, voice, video, tasks, and future account-reported limits distinct instead of combining unrelated allowances.
+- Show Codex weekly usage beside the menu-bar icon and color the refined spark-orbit mark green, yellow, orange, or red as usage rises.
+- Replaced the session countdown with an exact days/hours/minutes/seconds reset countdown for the selected usage scope and removed the next-scheduled-session display.
+- Added locally sampled usage-history charts with a clear-history control; gaps remain honest when the Mac is not running.
+- Kept weekly alerts configurable, made alerts for other percentage/blocked limits individually opt-in, and retained independent OpenAI outage alerts.
+- Renamed and rethemed the signed app while preserving its isolated bundle ID, Keychain login, ChatGPT cookie container, Cmd-I shortcut, and GPT-only update feed.
+
 ## v1.18.0
 
 - Split normal ChatGPT model/feature counters from Codex agentic limits so 3-hour, 5-hour, weekly, 30-day, code-review, credit, and workspace controls are shown with their real reported durations and sources.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generates the Session Pinger app icon as pixel art, following the house
+Generates the GPT Usage Tracker app icon as pixel art, following the house
 icon-design rules (encapsulated square, rounded corners, darker greyish-teal
 border panel with a soft top highlight, bright flat inner background, simple
 outlined central symbol) using the app's own GPT-green accent color.
@@ -35,22 +35,24 @@ def build_base_icon() -> Image.Image:
         [inset, inset, BASE - 1 - inset, BASE - 1 - inset], radius=5, fill=INNER_BG
     )
 
-    # Central symbol: a stopwatch, standing in for scheduled session pings.
-    cx, cy = BASE // 2, BASE // 2 + 1
-    r = 8
+    # Direction D refined: a segmented intelligence orbit surrounding a
+    # four-point spark. It feels native to GPT while remaining an original
+    # tracker mark rather than a copy of OpenAI's knot.
+    cx, cy = BASE // 2, BASE // 2
+    orbit_box = [cx - 9, cy - 9, cx + 9, cy + 9]
+    draw.arc(orbit_box, start=35, end=318, fill=SYMBOL_OUTLINE, width=5)
+    draw.arc(orbit_box, start=35, end=318, fill=SYMBOL_FILL, width=3)
 
-    # Crown button on top.
-    draw.rectangle([cx - 2, cy - r - 4, cx + 2, cy - r - 1], fill=SYMBOL_OUTLINE)
-    draw.rectangle([cx - 1, cy - r - 3, cx + 1, cy - r - 2], fill=SYMBOL_FILL)
-
-    # Watch body: dark outline circle with cream face.
-    draw.ellipse([cx - r - 1, cy - r - 1, cx + r + 1, cy + r + 1], fill=SYMBOL_OUTLINE)
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=SYMBOL_FILL)
-
-    # Clock hands, pointing up and to the right (a moment about to fire).
-    draw.line([(cx, cy), (cx, cy - r + 2)], fill=SYMBOL_OUTLINE, width=1)
-    draw.line([(cx, cy), (cx + r - 3, cy - 2)], fill=SYMBOL_OUTLINE, width=1)
-    draw.point((cx, cy), fill=SYMBOL_OUTLINE)
+    outer_spark = [
+        (cx, cy - 7), (cx + 2, cy - 2), (cx + 7, cy), (cx + 2, cy + 2),
+        (cx, cy + 7), (cx - 2, cy + 2), (cx - 7, cy), (cx - 2, cy - 2),
+    ]
+    inner_spark = [
+        (cx, cy - 5), (cx + 1, cy - 1), (cx + 5, cy), (cx + 1, cy + 1),
+        (cx, cy + 5), (cx - 1, cy + 1), (cx - 5, cy), (cx - 1, cy - 1),
+    ]
+    draw.polygon(outer_spark, fill=SYMBOL_OUTLINE)
+    draw.polygon(inner_spark, fill=SYMBOL_FILL)
 
     return img
 

@@ -5,12 +5,12 @@ import SwiftUI
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let settings: SettingsStore
-    private let stats: StatsStore
+    private let history: UsageHistoryStore
     private let appState: AppState
 
-    init(settings: SettingsStore, stats: StatsStore, appState: AppState) {
+    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState) {
         self.settings = settings
-        self.stats = stats
+        self.history = history
         self.appState = appState
         super.init()
         appState.requestShowSettings = { [weak self] in
@@ -55,7 +55,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
         let rootView = SettingsView()
             .environmentObject(settings)
-            .environmentObject(stats)
+            .environmentObject(history)
             .environmentObject(appState)
         let hosting = NSHostingController(rootView: rootView)
         let newWindow = NSWindow(contentViewController: hosting)

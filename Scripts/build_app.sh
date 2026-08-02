@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="GPT Session Pinger"
+APP_NAME="GPT Usage Tracker"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 BUILD_DIR=".build/release"
 DIST_DIR="dist"
 DIST_APP_DIR="${DIST_DIR}/${APP_NAME}.app"
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/session-pinger-build.XXXXXX")"
+WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gpt-usage-tracker-build.XXXXXX")"
 APP_DIR="${WORK_DIR}/${APP_NAME}.app"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
@@ -21,9 +21,7 @@ rm -rf "${DIST_APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
-cp "${BUILD_DIR}/GPTSessionPinger" "${APP_DIR}/Contents/MacOS/GPTSessionPinger"
-cp "${BUILD_DIR}/SessionPingerWakeHelper" "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
-chmod 755 "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
+cp "${BUILD_DIR}/GPTUsageTracker" "${APP_DIR}/Contents/MacOS/GPTUsageTracker"
 cp "Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
 cp "Resources/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
 
@@ -43,7 +41,7 @@ if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
 elif [[ "${AVAILABLE_IDENTITIES}" == *"Apple Development:"* ]]; then
     SIGN_IDENTITY="$(printf '%s\n' "${AVAILABLE_IDENTITIES}" | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -n 1)"
 else
-    SIGN_IDENTITY="Session Pinger Signing"
+    SIGN_IDENTITY="GPT Usage Tracker Signing"
 fi
 if printf '%s\n' "${AVAILABLE_IDENTITIES}" | grep -Fq "${SIGN_IDENTITY}"; then
     echo "Signing with identity: ${SIGN_IDENTITY}"

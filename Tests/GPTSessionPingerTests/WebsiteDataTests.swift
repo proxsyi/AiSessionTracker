@@ -1,6 +1,6 @@
 import WebKit
 import XCTest
-@testable import GPTSessionPinger
+@testable import GPTUsageTracker
 
 @MainActor
 final class WebsiteDataTests: XCTestCase {
@@ -9,7 +9,7 @@ final class WebsiteDataTests: XCTestCase {
         let cookie = try XCTUnwrap(HTTPCookie(properties: [
             .domain: ".chatgpt.com",
             .path: "/",
-            .name: "session-pinger-clear-test",
+            .name: "usage-tracker-clear-test",
             .value: "dummy",
             .secure: "TRUE"
         ]))
@@ -22,6 +22,6 @@ final class WebsiteDataTests: XCTestCase {
         let cookies = await withCheckedContinuation { continuation in
             store.getAllCookies { continuation.resume(returning: $0) }
         }
-        XCTAssertFalse(cookies.contains(where: { $0.name == "session-pinger-clear-test" }))
+        XCTAssertFalse(cookies.contains(where: { $0.name == "usage-tracker-clear-test" }))
     }
 }

@@ -1,14 +1,14 @@
 import SwiftUI
 import Carbon.HIToolbox
 
-private let menuHotKeySignature: OSType = 0x53504E47 // "SPNG"
+private let menuHotKeySignature: OSType = 0x47505454 // "GPTT"
 private let menuHotKeyIdentifier: UInt32 = 1
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
-    let stats = StatsStore()
-    lazy var appState = AppState(settings: settings, stats: stats)
+    let history = UsageHistoryStore()
+    lazy var appState = AppState(settings: settings, history: history)
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?
@@ -20,8 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        settingsWindowController = SettingsWindowController(settings: settings, stats: stats, appState: appState)
-        statusBarController = StatusBarController(settings: settings, stats: stats, appState: appState)
+        settingsWindowController = SettingsWindowController(settings: settings, history: history, appState: appState)
+        statusBarController = StatusBarController(settings: settings, history: history, appState: appState)
         installSettingsShortcut()
         observeMenuShortcutSetting()
         updateMenuHotKeyRegistration()
@@ -64,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Reopening the accessory app from Finder, Spotlight, or `open` presents
     /// its actual menu-bar popover. This matches a menu-bar app's normal
-    /// behavior and keeps Ping now reachable without hunting for the icon.
+    /// behavior and keeps current usage reachable without hunting for the icon.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
             appState.requestTogglePopover?()
@@ -208,11 +208,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let rootView = MenuBarContentView()
             .environmentObject(settings)
-            .environmentObject(stats)
+            .environmentObject(history)
             .environmentObject(appState)
         let hosting = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hosting)
-        window.title = "GPT Menu Test"
+        window.title = "GPT Tracker Menu Test"
         window.styleMask = [.titled, .closable]
         window.contentMinSize = NSSize(width: 320, height: 500)
         window.isReleasedWhenClosed = false
@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct GPTSessionPingerApp: App {
+struct GPTUsageTrackerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

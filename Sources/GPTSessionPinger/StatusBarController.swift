@@ -1,6 +1,6 @@
 import AppKit
-import SwiftUI
 import Combine
+import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject, NSPopoverDelegate {
@@ -8,25 +8,26 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private let popover: NSPopover
     private var cancellables = Set<AnyCancellable>()
     private let appState: AppState
-    private var countdownTimer: Timer?
+    private let settings: SettingsStore
     private var popoverOpenedAt = Date.distantPast
 
-    init(settings: SettingsStore, stats: StatsStore, appState: AppState) {
+    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState) {
         self.appState = appState
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let popover = NSPopover()
+        self.settings = settings
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
-        popover.contentSize = NSSize(width: 320, height: 560)
-        self.popover = popover
+        popover.contentSize = NSSize(width: 340, height: 620)
         super.init()
 
         popover.delegate = self
-        let contentView = MenuBarContentView()
-            .environmentObject(settings)
-            .environmentObject(stats)
-            .environmentObject(appState)
-        popover.contentViewController = NSHostingController(rootView: contentView)
+        popover.contentViewController = NSHostingController(
+            rootView: MenuBarContentView()
+                .environmentObject(settings)
+                .environmentObject(history)
+                .environmentObject(appState)
+        )
 
         if let button = statusItem.button {
             button.imagePosition = .imageLeading
@@ -34,31 +35,21 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             button.action = #selector(togglePopover(_:))
             button.target = self
         }
-        updateButton(usage: appState.usage)
+        updateButton()
 
-        appState.requestClosePopover = { [weak self] in
-            self?.closePopover()
-        }
-        appState.requestTogglePopover = { [weak self] in
-            self?.togglePopover(nil)
-        }
+        appState.requestClosePopover = { [weak self] in self?.closePopover() }
+        appState.requestTogglePopover = { [weak self] in self?.togglePopover(nil) }
 
         appState.$usage
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] usage in
-                self?.updateButton(usage: usage)
+            .sink { [weak self] _ in self?.updateButton() }
+            .store(in: &cancellables)
+        settings.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.updateButton() }
             }
             .store(in: &cancellables)
-
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateButton(usage: self?.appState.usage)
-            }
-        }
-    }
-
-    deinit {
-        countdownTimer?.invalidate()
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {
@@ -80,49 +71,54 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         popover.performClose(nil)
     }
 
-    /// Menu bar shows a color-coded, original geometric knot plus the current
-    /// session usage. Its background remains fully transparent, as required
-    /// for a compact status-bar item.
-    /// At 100%, crimson and a live reset countdown replace the percentage.
-    private func updateButton(usage: GPTUsage?) {
+    private func updateButton() {
         guard let button = statusItem.button else { return }
-        let percent = usage?.sessionPercent
-        let isMaxed = (percent ?? 0) >= 100
-        button.image = Self.knotImage(color: isMaxed ? Self.crimson : Self.usageColor(percent: percent))
-        if isMaxed, let resetsAt = usage?.sessionResetsAt {
-            button.title = " \(Self.countdownText(until: resetsAt))"
-        } else {
-            button.title = percent.map { " \($0)%" } ?? ""
-        }
+        let weekly = appState.usage?.weeklyTrack
+        let showWeekly = weekly.map { settings.isUsageTrackVisible($0.preferenceID) }
+            ?? settings.isUsageTrackVisible("codex-weekly")
+        let percent = showWeekly ? weekly?.usedPercent : nil
+        let color = Self.usageColor(percent: percent)
+        button.image = Self.sparkOrbitImage(color: color)
+        button.title = showWeekly ? (percent.map { " \($0)%" } ?? " —%") : ""
+        button.toolTip = percent.map { "GPT Usage Tracker · Codex weekly usage \($0)%" }
+            ?? "GPT Usage Tracker · weekly usage unavailable"
     }
-
-    static let crimson = NSColor(calibratedRed: 0.863, green: 0.078, blue: 0.235, alpha: 1)
 
     static func usageColor(percent: Int?) -> NSColor {
         guard let percent else { return .systemGray }
-        if percent < 70 { return .systemGreen }
-        if percent < 90 { return .systemYellow }
+        if percent < 50 { return .systemGreen }
+        if percent < 75 { return .systemYellow }
+        if percent < 90 { return .systemOrange }
         return .systemRed
     }
 
-    static func countdownText(until date: Date) -> String {
-        let remaining = max(0, date.timeIntervalSinceNow)
-        let hours = Int(remaining) / 3600
-        let minutes = (Int(remaining) % 3600) / 60
-        if hours > 0 {
-            return String(format: "%dh %02dm", hours, minutes)
-        }
-        return String(format: "%dm", minutes)
-    }
+    /// Direction D refined for the real menu bar: an open orbital usage ring
+    /// around a four-point intelligence spark. It reads clearly at 16px and
+    /// evokes GPT without reproducing OpenAI's knot.
+    static func sparkOrbitImage(color: NSColor) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
 
-    /// An SF Symbol mesh is legible at menu-bar size and evokes an AI knot
-    /// without reproducing the ChatGPT mark. The symbol's surrounding pixels
-    /// are transparent; only its strokes receive the usage-state color.
-    static func knotImage(color: NSColor) -> NSImage {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
-        let base = NSImage(systemSymbolName: "circle.hexagongrid", accessibilityDescription: "GPT Session Pinger")
-        let image = base?.withSymbolConfiguration(configuration) ?? NSImage(size: NSSize(width: 16, height: 16))
+        color.setStroke()
+        color.setFill()
+
+        let ring = NSBezierPath()
+        ring.appendArc(withCenter: NSPoint(x: 9, y: 9), radius: 6.2, startAngle: 38, endAngle: 326, clockwise: false)
+        ring.lineWidth = 1.9
+        ring.lineCapStyle = .round
+        ring.stroke()
+
+        let spark = NSBezierPath()
+        spark.move(to: NSPoint(x: 9, y: 5.4))
+        spark.curve(to: NSPoint(x: 12.6, y: 9), controlPoint1: NSPoint(x: 9.5, y: 7.8), controlPoint2: NSPoint(x: 10.2, y: 8.5))
+        spark.curve(to: NSPoint(x: 9, y: 12.6), controlPoint1: NSPoint(x: 10.2, y: 9.5), controlPoint2: NSPoint(x: 9.5, y: 10.2))
+        spark.curve(to: NSPoint(x: 5.4, y: 9), controlPoint1: NSPoint(x: 8.5, y: 10.2), controlPoint2: NSPoint(x: 7.8, y: 9.5))
+        spark.curve(to: NSPoint(x: 9, y: 5.4), controlPoint1: NSPoint(x: 7.8, y: 8.5), controlPoint2: NSPoint(x: 8.5, y: 7.8))
+        spark.close()
+        spark.fill()
+
         image.isTemplate = false
         return image
     }

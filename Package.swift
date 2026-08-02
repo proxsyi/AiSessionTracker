@@ -2,27 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "GPTSessionPinger",
+    name: "GPTUsageTracker",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "GPTSessionPinger",
+            name: "GPTUsageTracker",
             path: "Sources/GPTSessionPinger",
             linkerSettings: [
                 .linkedFramework("Carbon")
             ]
         ),
-        .executableTarget(
-            name: "SessionPingerWakeHelper",
-            path: "Sources/SessionPingerWakeHelper",
-            linkerSettings: [
-                .linkedFramework("CoreFoundation"),
-                .linkedFramework("IOKit")
-            ]
-        ),
         .testTarget(
-            name: "GPTSessionPingerTests",
-            dependencies: ["GPTSessionPinger"],
+            name: "GPTUsageTrackerTests",
+            dependencies: ["GPTUsageTracker"],
             path: "Tests/GPTSessionPingerTests"
         )
     ]

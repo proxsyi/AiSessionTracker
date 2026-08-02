@@ -23,7 +23,7 @@ enum ChatGPTWebSession {
         }
 
         let trimmed = savedCredential.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard looksLikeAccessToken(trimmed) else { throw PingError.sessionExpired }
+        guard looksLikeAccessToken(trimmed) else { throw UsageError.sessionExpired }
         return ChatGPTAuthSession(
             accessToken: trimmed,
             accountID: accountID?.nilIfEmpty,
