@@ -42,7 +42,7 @@ enum Updater {
         }
 
         let workDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ClaudeSessionPingerUpdate-\(UUID().uuidString)")
+            .appendingPathComponent("GPTSessionPingerUpdate-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
         let zipPath = workDir.appendingPathComponent(UpdateFeed.assetName)
         try FileManager.default.moveItem(at: downloadedURL, to: zipPath)

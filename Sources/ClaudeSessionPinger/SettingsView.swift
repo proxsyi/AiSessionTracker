@@ -230,7 +230,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Account")
 
-            Button(loginCaptured || !settings.sessionKey.isEmpty ? "Log in again" : "Log in with Claude") {
+            Button(loginCaptured || !settings.cookieHeader.isEmpty ? "Log in again" : "Log in with ChatGPT") {
                 showingLogin = true
             }
             .claudePrimaryButton()
@@ -239,17 +239,8 @@ struct SettingsView: View {
                 Text("Signed in -- session and cookies captured automatically.")
                     .font(.system(size: 11))
                     .foregroundColor(ClaudeTheme.accent)
-            } else if !settings.sessionKey.isEmpty {
-                caption("Using a previously captured session (\(settings.maskedSessionKey)).")
-            }
-
-            if isFetchingOrganization {
-                caption("Detecting your organization ID\u{2026}")
-            } else if loginCaptured && organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Couldn't detect your organization ID automatically. Open claude.ai in a browser, open Dev Tools \u{2192} Application \u{2192} Cookies, and paste the value of \"lastActiveOrg\" under Keys below.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+            } else if !settings.cookieHeader.isEmpty {
+                caption("Using a previously captured ChatGPT session.")
             }
 
             keysDisclosure
@@ -257,8 +248,8 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Collapsed by default: the organization ID and session key are captured
-    /// automatically at login, so these fields exist only for manual fixes.
+    /// Collapsed by default: this is a manual fallback for a ChatGPT cookie
+    /// header when the built-in login cannot complete.
     private var keysDisclosure: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
@@ -273,21 +264,15 @@ struct SettingsView: View {
             if showManualKeys {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    fieldLabel("Organization ID")
-                    TextField("Filled automatically on login", text: $organizationID)
-                        .textFieldStyle(.plain)
-                        .claudeGlassField()
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    fieldLabel("Session key")
-                    SecureField(settings.sessionKey.isEmpty ? "Paste sessionKey cookie" : settings.maskedSessionKey, text: $sessionKeyInput)
+                    fieldLabel("ChatGPT Cookie header")
+                    SecureField("Paste the complete Cookie header", text: $sessionKeyInput)
                         .textFieldStyle(.plain)
                         .claudeGlassField()
                     caption("Only needed if the built-in login doesn't work for your account.")
                 }
                 caption(settings.cookieHeader.isEmpty
-                    ? "No login cookies captured yet -- use Log in with Claude above."
-                    : "Full login cookies captured and stored in the keychain.")
+                    ? "No login cookies captured yet -- use Log in with ChatGPT above."
+                    : "Full ChatGPT login cookies captured and stored in the keychain.")
             }
             .padding(.top, 8)
             .transition(.opacity.combined(with: .move(edge: .top)))
@@ -312,7 +297,7 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .tint(ClaudeTheme.accent)
-                caption("Your choice is tried first. If Claude rejects it, the app falls back to another available model.")
+                caption("Your choice is tried first. If ChatGPT rejects it, the app tries another available model.")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -383,16 +368,16 @@ struct SettingsView: View {
     }
 
     private func modelRank(_ slug: String) -> Int {
-        if slug.contains("haiku") { return 0 }
-        if slug.contains("sonnet") { return 1 }
-        if slug.contains("opus") { return 2 }
+        if slug == "auto" { return 0 }
+        if slug.contains("terra") { return 1 }
+        if slug.contains("chat-latest") { return 2 }
         return 3
     }
 
     private func modelLabel(_ slug: String) -> String {
-        if slug.contains("haiku") { return "Haiku (suggested) — \(slug)" }
-        if slug.contains("sonnet") { return "Sonnet — \(slug)" }
-        if slug.contains("opus") { return "Opus — \(slug)" }
+        if slug == "auto" { return "Auto (suggested)" }
+        if slug.contains("terra") { return "GPT 5.6 Terra — \(slug)" }
+        if slug.contains("chat-latest") { return "ChatGPT latest — \(slug)" }
         return slug
     }
 
@@ -430,13 +415,13 @@ struct SettingsView: View {
             }
 
             caption(settings.conversationID.isEmpty
-                ? "The next ping will create one dedicated Claude chat and reuse it afterward."
-                : "Pings are reusing one dedicated Claude chat.")
+                ? "The next ping will create one dedicated ChatGPT chat and reuse it afterward."
+                : "Pings are reusing one dedicated ChatGPT chat.")
 
             if !settings.conversationID.isEmpty {
                 HStack {
                     Button("Open pinger chat") {
-                        if let url = URL(string: "https://claude.ai/chat/\(settings.conversationID)") {
+                        if let url = URL(string: "https://chatgpt.com/c/\(settings.conversationID)") {
                             NSWorkspace.shared.open(url)
                         }
                     }
@@ -462,7 +447,6 @@ struct SettingsView: View {
             SectionHeader(text: "Usage bars")
             toggleRow("Session (5 hour)", isOn: $showSessionBar)
             toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
-            toggleRow("Fable 5 weekly", isOn: $showFable5Bar)
             caption("Choose which usage windows appear in the menu bar popover.")
             Divider()
             SectionHeader(text: "Countdown card")
@@ -755,6 +739,7 @@ struct SettingsView: View {
         let trimmedSessionKeyInput = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedSessionKeyInput.isEmpty {
             settings.sessionKey = trimmedSessionKeyInput
+            settings.cookieHeader = trimmedSessionKeyInput
         }
         settings.organizationID = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -806,10 +791,10 @@ struct SettingsView: View {
         let messageToTest = trimmedMessage.isEmpty ? "Say 1" : trimmedMessage
         // A manually pasted key can't be paired with the stored cookies (they
         // belong to the previous session), so fall back to just that key.
-        let cookieHeaderToTest = trimmedInput.isEmpty ? settings.effectiveCookieHeader : "sessionKey=\(keyToTest)"
+        let cookieHeaderToTest = trimmedInput.isEmpty ? settings.effectiveCookieHeader : keyToTest
         Task {
             do {
-                let outcome = try await ClaudeClient.sendPing(
+                let outcome = try await GPTClient.sendPing(
                     sessionKey: keyToTest,
                     organizationID: orgToTest,
                     model: modelToTest,
@@ -819,7 +804,7 @@ struct SettingsView: View {
                 )
                 await MainActor.run {
                     settings.conversationID = outcome.conversationID
-                    testResult = outcome.matchedExpected ? "Success: got reply" : "Connected, but Claude returned an empty reply"
+                    testResult = outcome.matchedExpected ? "Success: got reply" : "Connected, but ChatGPT returned an empty reply"
                     isTesting = false
                 }
             } catch {

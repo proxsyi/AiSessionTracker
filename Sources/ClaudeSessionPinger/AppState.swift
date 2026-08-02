@@ -26,10 +26,10 @@ final class AppState: ObservableObject {
     @Published var updateCheckError: String?
     @Published var isInstallingUpdate = false
     @Published var installUpdateError: String?
-    @Published var usage: ClaudeUsage?
+    @Published var usage: GPTUsage?
     @Published var usageError: String?
     @Published var isRefreshingUsage = false
-    @Published var serviceStatus: ClaudeServiceStatus?
+    @Published var serviceStatus: GPTServiceStatus?
     /// Model slugs detected as available for this account (empty until fetched).
     @Published var availableModels: [String] = []
     /// The model the last successful ping actually used.
@@ -374,7 +374,7 @@ final class AppState: ObservableObject {
             attempt += 1
             let modelToUse = candidates[min(modelIndex, candidates.count - 1)]
             do {
-                let outcome = try await ClaudeClient.sendPing(
+                let outcome = try await GPTClient.sendPing(
                     sessionKey: settings.sessionKey,
                     organizationID: settings.organizationID,
                     model: modelToUse,
@@ -386,19 +386,19 @@ final class AppState: ObservableObject {
                 activeModel = modelToUse
                 lastPingDate = Date()
                 status = outcome.matchedExpected ? .success : .failure
-                let summary = outcome.matchedExpected ? "Got reply" : "Claude returned an empty reply"
+                let summary = outcome.matchedExpected ? "Got reply" : "ChatGPT returned an empty reply"
                 stats.addRecord(success: outcome.matchedExpected, summary: summary)
                 if outcome.matchedExpected && settings.notifySessionStarted {
                     sendNotification(
                         identifier: "session-started",
-                        title: "New Claude session started",
+                        title: "New ChatGPT session started",
                         body: manual
                             ? "Your manual ping started a new session."
                             : "Session Pinger started a new session."
                     )
                 }
                 if !outcome.matchedExpected {
-                    lastError = "Claude returned an empty reply."
+                    lastError = "ChatGPT returned an empty reply."
                     notifyFailureIfNeeded(message: lastError ?? "")
                 }
                 rescheduleTimer()
@@ -449,8 +449,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Try the user's selected model first, then detected and known fallbacks
-    /// from lightest to heaviest if Claude rejects that model.
+    /// Try the user's selected model first, then known ChatGPT fallbacks.
     private func modelCandidates() -> [String] {
         let selected = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackPool = (availableModels + UsageChecker.fallbackModels)
@@ -463,9 +462,9 @@ final class AppState: ObservableObject {
     }
 
     private func modelRank(_ slug: String) -> Int {
-        if slug.contains("haiku") { return 0 }
-        if slug.contains("sonnet") { return 1 }
-        if slug.contains("opus") { return 2 }
+        if slug == "auto" { return 0 }
+        if slug.contains("terra") { return 1 }
+        if slug.contains("chat-latest") { return 2 }
         return 3
     }
 

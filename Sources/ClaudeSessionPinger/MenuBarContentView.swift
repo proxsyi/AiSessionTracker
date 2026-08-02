@@ -103,7 +103,7 @@ struct MenuBarContentView: View {
 
     private var usageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Claude usage")
+            SectionHeader(text: "ChatGPT usage")
 
             if settings.showSessionBar {
                 usageRow(
@@ -119,17 +119,6 @@ struct MenuBarContentView: View {
                     resetText: weeklyResetText
                 )
             }
-            if settings.showFable5Bar {
-                usageRow(
-                    title: appState.usage?.fable5UsesSharedWeekly == true
-                        ? "Fable 5 (shared weekly)"
-                        : "Fable 5 weekly",
-                    percent: appState.usage?.fable5Percent,
-                    resetText: fable5ResetText,
-                    missingText: appState.usage == nil ? "No data yet" : "Not reported for this account"
-                )
-            }
-
             if let error = appState.usageError {
                 Text(error)
                     .font(.system(size: 11))
@@ -193,7 +182,7 @@ struct MenuBarContentView: View {
                 Circle()
                     .fill(serviceStatusColor)
                     .frame(width: 7, height: 7)
-                Text(appState.serviceStatus?.message ?? "Checking Claude service status\u{2026}")
+                Text(appState.serviceStatus?.message ?? "Checking OpenAI service status\u{2026}")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(ClaudeTheme.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -205,11 +194,11 @@ struct MenuBarContentView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            if let url = URL(string: "https://status.claude.com") {
+            if let url = URL(string: "https://status.openai.com") {
                 NSWorkspace.shared.open(url)
             }
         }
-        .help("Open Claude Status")
+        .help("Open OpenAI Status")
     }
 
     private var serviceStatusColor: Color {
@@ -226,7 +215,7 @@ struct MenuBarContentView: View {
     }
 
     private var serviceStatusDetail: String {
-        var text = "Tracks claude.ai, Claude Console, Claude API, Claude Code +1"
+        var text = "Tracks ChatGPT and OpenAI services"
         if let checked = appState.serviceStatus?.checkedAt {
             text += " \u{00B7} checked \(relativeTimeText(since: checked))"
         }
@@ -248,17 +237,6 @@ struct MenuBarContentView: View {
 
     private var weeklyResetText: String? {
         guard let date = appState.usage?.weeklyResetsAt else { return nil }
-        let day = date.formatted(.dateTime.day().month(.abbreviated).year())
-        let time = date.formatted(date: .omitted, time: .shortened)
-        return "Resets on \(day) at \(time)"
-    }
-
-    private var fable5ResetText: String? {
-        guard let usage = appState.usage else { return nil }
-        if usage.fable5UsesSharedWeekly {
-            return weeklyResetText.map { "Shared with Weekly · \($0)" } ?? "Shared with Weekly"
-        }
-        guard let date = usage.fable5ResetsAt else { return nil }
         let day = date.formatted(.dateTime.day().month(.abbreviated).year())
         let time = date.formatted(date: .omitted, time: .shortened)
         return "Resets on \(day) at \(time)"

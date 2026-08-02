@@ -174,7 +174,7 @@ final class SettingsStore: ObservableObject {
         Self.migrateLegacyDefaultsIfNeeded(into: defaults)
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
         let storedModel = defaults.string(forKey: Keys.model) ?? ""
-        model = storedModel.isEmpty ? "claude-haiku-4-5-20251001" : storedModel
+        model = storedModel.isEmpty ? "auto" : storedModel
         message = defaults.string(forKey: Keys.message) ?? "Say 1"
         conversationID = defaults.string(forKey: Keys.conversationID) ?? ""
         showSessionBar = defaults.object(forKey: Keys.showSessionBar) == nil ? true : defaults.bool(forKey: Keys.showSessionBar)
@@ -241,8 +241,7 @@ final class SettingsStore: ObservableObject {
     }
 
     var isConfigured: Bool {
-        !sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -250,15 +249,7 @@ final class SettingsStore: ObservableObject {
     /// cookies when they still match the current session key, otherwise just
     /// the session key (e.g. after a manual key paste).
     var effectiveCookieHeader: String {
-        let trimmedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasMatchingSessionCookie = cookieHeader
-            .split(separator: ";")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .contains("sessionKey=\(trimmedKey)")
-        if !trimmedKey.isEmpty, hasMatchingSessionCookie {
-            return cookieHeader
-        }
-        return "sessionKey=\(trimmedKey)"
+        cookieHeader
     }
 
     var maskedSessionKey: String {

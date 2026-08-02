@@ -13,13 +13,13 @@ enum PingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingCredentials:
-            return "Session key, organization ID, or model is missing. Open Settings to add them."
+            return "ChatGPT session or model is missing. Open Settings and sign in."
         case .invalidURL:
-            return "Could not build a valid request URL. Check the organization ID."
+            return "Could not build a valid ChatGPT request URL."
         case .network(let urlError):
             return "Network error: \(urlError.localizedDescription)"
         case .sessionExpired:
-            return "Session key looks expired or invalid. Grab a fresh one from your browser."
+            return "Your ChatGPT session looks expired or invalid. Sign in again from Settings."
         case .rateLimited:
             return "Rate limited by the server. Will try again next scheduled time."
         case .serverError(let code, let body):

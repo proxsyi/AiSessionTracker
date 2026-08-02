@@ -82,7 +82,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     /// Menu bar shows a color-coded sparkle plus the current session usage.
     /// At 100%, crimson and a live reset countdown replace the percentage.
-    private func updateButton(usage: ClaudeUsage?) {
+    private func updateButton(usage: GPTUsage?) {
         guard let button = statusItem.button else { return }
         let percent = usage?.sessionPercent
         let isMaxed = (percent ?? 0) >= 100

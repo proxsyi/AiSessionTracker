@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.17.0
+
+- Added the GPT Session Pinger branch: a ChatGPT consumer-web version with built-in ChatGPT login, dedicated-conversation reuse, scheduled and manual pings, retries, notifications, activity history, and the existing closed-lid wake workflow.
+- Added a separate GPT bundle identifier and Keychain service so the ChatGPT session is isolated from the Claude release.
+- Rethemed the menu-bar app in green and added a new interlocking GPT-style app icon.
+- Switched service status to OpenAI Status and display account usage only when ChatGPT explicitly returns equivalent limit data.
+
 ## v1.16.0
 
 - Added on-by-default scheduled wake support for sleeping, plugged-in Macs, backed by a one-time administrator-installed helper that schedules persistent IOKit wake events.

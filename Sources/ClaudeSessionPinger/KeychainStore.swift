@@ -13,8 +13,8 @@ enum KeychainError: LocalizedError {
 }
 
 enum KeychainStore {
-    private static let service = "com.proxsyi.claudesessionpinger"
-    private static let legacyServices = ["com.cash.claudesessionpinger"]
+    private static let service = "com.proxsyi.gptsessionpinger"
+    private static let legacyServices: [String] = []
     private static let account = "sessionKey"
 
     static func save(_ value: String, account: String = KeychainStore.account) throws {

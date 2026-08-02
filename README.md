@@ -1,93 +1,40 @@
-# Session Pinger
+# GPT Session Pinger
 
-A personal macOS menu bar app that sends a short message to claude.ai so Claude usage sessions begin at intentional times instead of drifting with the first manual message of the day.
+A personal macOS menu bar app that sends short messages to ChatGPT on an intentional schedule, so your ChatGPT usage sessions start when you choose.
 
 ## What it does
 
-- Starts sessions on a configurable schedule. The defaults are 5:00 AM, 10:00 AM, 3:00 PM, and 8:00 PM.
-- Enforces at least five hours between every scheduled start, including the overnight boundary.
-- Reuses one dedicated Claude conversation for scheduled, manual, and connection-test pings.
-- Treats any non-empty Claude reply as success.
-- Shows session, weekly, and optional Fable 5 usage with reset times and Claude service status.
-- Supports dynamic Fable-scoped payloads and labels Fable as shared weekly when Claude reports no separate allowance.
-- Offers independent next-possible and scheduled countdowns.
-- Can optionally start an available session immediately, except within five hours of the next scheduled start or another successful ping.
-- Can wake a plugged-in, closed-lid MacBook for scheduled pings and return it to sleep when no physical input occurs.
-- Provides configurable notifications and GitHub Release update checks.
-- Lives only in the menu bar. There is no Dock icon.
+- Starts ChatGPT sessions on a configurable daily schedule. Defaults: 5:00 AM, 10:00 AM, 3:00 PM, and 8:00 PM.
+- Enforces five-hour spacing between every scheduled start, including overnight.
+- Uses one dedicated ChatGPT conversation for scheduled, manual, and connection-test pings.
+- Captures your ChatGPT web-session cookies through a built-in browser login and keeps them only in the macOS Keychain.
+- Shows session and weekly limits when ChatGPT reports equivalent account data, plus OpenAI service health.
+- Provides persistent activity history, notifications, global Command-U, and automatic update checks.
+- Can wake a plugged-in, closed-lid MacBook for a scheduled ping and return it to sleep when there was no physical input.
+- Runs only in the menu bar; there is no Dock icon.
 
 ## Get it running
 
-1. Download `Session.Pinger.zip` from [GitHub Releases](https://github.com/proxsyi/ClaudeSessionPinger/releases) and unzip it.
-2. Move `Session Pinger.app` to **Applications**.
-3. Open it. If macOS says Apple could not verify the app, click **Done**, then use **System Settings > Privacy & Security > Open Anyway**.
+1. Build `GPT Session Pinger.app` from this branch.
+2. Move it to **Applications** and open it.
+3. Open **Settings > General > Log in with ChatGPT**. Complete the login in the built-in browser; the app captures the authenticated cookie header automatically.
+4. Optionally install scheduled wake support under **Settings > App**. This is a one-time administrator-authorized installation.
 
-   Terminal alternative:
+## Security and limitations
 
-   ```bash
-   xattr -dr com.apple.quarantine "/Applications/Session Pinger.app"
-   ```
+- Keychain service: `com.proxsyi.gptsessionpinger`.
+- The app never writes credentials to logs or plain-text files.
+- This is a personal consumer-web integration, not the OpenAI API. ChatGPT’s web endpoints and account fields are undocumented and can change without notice.
+- ChatGPT does not consistently expose a universal usage meter. The app only displays session/weekly values when the signed-in account returns explicit limit data; it does not infer usage from messages.
+- Closed-lid wake requires a plugged-in MacBook.
 
-4. Open **Settings > General > Log in with Claude**. The app captures the session, cookie header, and organization automatically.
-5. Optional: in **Settings > App**, install scheduled wake support. This is a one-time administrator-authorized installation.
-6. If using closed-lid wake, keep the MacBook plugged in and run the two-minute closed-lid test from Settings.
+## Build
 
-## Scheduled wake
-
-- Scheduled wake is on by default, but requires the one-time helper installation.
-- The helper is installed at `/Library/PrivilegedHelperTools/com.proxsyi.claudesessionpinger.wake-helper`.
-- It is root-owned, restricted to the installing user, and accepts only fixed `version`, `schedule`, `cancel`, `hold`, and `sleep` commands.
-- Wake events are registered five seconds before each scheduled ping.
-- The helper holds a `PreventSystemSleep` assertion for up to 120 seconds while the app pings.
-- After an automatic ping, the app waits 30 seconds and checks `IOHIDSystem` physical-input idle time. If no physical activity occurred, it requests sleep.
-- A closed-lid wake, ping, and return-to-sleep test passed on a plugged-in MacBook on July 18, 2026.
-
-## Shortcuts
-
-- **Command-U:** toggle the menu bar popover globally when enabled.
-- **Command-,**: save and close Settings, then restore the popover.
-
-## Security and storage
-
-- Keychain service: `com.proxsyi.claudesessionpinger`.
-- Keychain accounts: `sessionKey` and `cookieHeader`.
-- Credentials are never written to plain-text files or logs.
-- Settings use `UserDefaults`.
-- Activity history: `~/Library/Application Support/ClaudeSessionPinger/history.json`.
-- Wake diagnostics: `~/Library/Application Support/ClaudeSessionPinger/wake-events.log`.
-
-## Important limitation
-
-Claude.ai does not provide a supported consumer-chat API for this workflow. Session Pinger uses undocumented consumer-web endpoints with your own browser session. Endpoint, authentication, model, or usage-payload changes can require an app update.
-
-## Building from source
-
-Requires macOS 13 or newer and Xcode command-line tools.
+Requires macOS 13+ and Xcode command-line tools.
 
 ```bash
-git clone https://github.com/proxsyi/ClaudeSessionPinger.git
-cd ClaudeSessionPinger
+swift build -c release
 ./Scripts/build_app.sh
 ```
 
-The signed and strictly verified app is written to `dist/Session Pinger.app`. Run the assembled app bundle rather than the raw Swift package executable.
-
-## Uninstall
-
-Quit the app and delete it from `/Applications`. To remove current local data and Keychain records:
-
-```bash
-rm -rf "$HOME/Library/Application Support/ClaudeSessionPinger"
-security delete-generic-password -s com.proxsyi.claudesessionpinger -a sessionKey
-security delete-generic-password -s com.proxsyi.claudesessionpinger -a cookieHeader
-```
-
-If scheduled wake support was installed, remove the privileged files with administrator authorization:
-
-```bash
-sudo rm -f /Library/PrivilegedHelperTools/com.proxsyi.claudesessionpinger.wake-helper
-sudo rm -f "/Library/Application Support/SessionPinger/allowed_uid"
-sudo rmdir "/Library/Application Support/SessionPinger" 2>/dev/null || true
-```
-
-Legacy installations may also have Keychain records under `com.cash.claudesessionpinger`. Remove those only after confirming the current credentials work.
+The assembled, strictly verified app is written to `dist/GPT Session Pinger.app`.

@@ -8,11 +8,11 @@ final class StatsStore: ObservableObject {
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        let folder = appSupport?.appendingPathComponent("ClaudeSessionPinger", isDirectory: true)
+        let folder = appSupport?.appendingPathComponent("GPTSessionPinger", isDirectory: true)
         if let folder = folder {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
-        fileURL = folder?.appendingPathComponent("history.json") ?? URL(fileURLWithPath: "/tmp/claude-session-pinger-history.json")
+        fileURL = folder?.appendingPathComponent("history.json") ?? URL(fileURLWithPath: "/tmp/gpt-session-pinger-history.json")
         load()
     }
 

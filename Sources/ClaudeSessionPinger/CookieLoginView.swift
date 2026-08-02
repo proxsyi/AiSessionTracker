@@ -33,7 +33,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         }
         #endif
         context.coordinator.attach(to: webView)
-        let request = URLRequest(url: URL(string: "https://claude.ai/login")!, cachePolicy: .returnCacheDataElseLoad)
+        let request = URLRequest(url: URL(string: "https://chatgpt.com/auth/login")!, cachePolicy: .returnCacheDataElseLoad)
         webView.load(request)
         return webView
     }
@@ -53,12 +53,6 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         private var pollTimer: Timer?
         private var didCapture = false
         private var popupWindows: [NSWindow] = []
-        private var sessionKeyFoundAt: Date?
-        // claude.ai sets `sessionKey` immediately on login, but `lastActiveOrg`
-        // is often set a moment later once the app finishes redirecting into
-        // the workspace. Without this grace period we'd sometimes capture the
-        // session with no organization ID at all.
-        private let orgCookieGracePeriod: TimeInterval = 8
 
         init(onCookiesCaptured: @escaping (String, String?, String) -> Void, onStateChange: @escaping (CookieLoginState) -> Void) {
             self.onCookiesCaptured = onCookiesCaptured
@@ -170,35 +164,22 @@ struct CookieLoginRepresentable: NSViewRepresentable {
             guard !didCapture, let store = webView?.configuration.websiteDataStore.httpCookieStore else { return }
             store.getAllCookies { [weak self] cookies in
                 guard let self, !self.didCapture else { return }
-                let claudeCookies = cookies.filter { $0.domain.contains("claude.ai") }
-                guard let sessionCookie = claudeCookies.first(where: { $0.name == "sessionKey" }), !sessionCookie.value.isEmpty else {
+                let chatGPTCookies = cookies.filter { $0.domain.contains("chatgpt.com") || $0.domain.contains("openai.com") }
+                guard !chatGPTCookies.isEmpty,
+                      let sessionCookie = chatGPTCookies.first(where: { !$0.value.isEmpty && ($0.name.contains("session") || $0.name.contains("auth") || $0.name == "_account") }) else {
                     return
-                }
-                let orgCookie = claudeCookies.first(where: { $0.name == "lastActiveOrg" })
-                let hasOrg = !(orgCookie?.value.isEmpty ?? true)
-
-                if !hasOrg {
-                    let foundAt = self.sessionKeyFoundAt ?? Date()
-                    self.sessionKeyFoundAt = foundAt
-                    if Date().timeIntervalSince(foundAt) < self.orgCookieGracePeriod {
-                        // Session is in, but give the org cookie a little longer to
-                        // show up before finishing without it.
-                        return
-                    }
                 }
 
                 self.didCapture = true
                 self.stopPolling()
                 let sessionValue = sessionCookie.value
-                let orgValue = hasOrg ? orgCookie?.value : nil
-                // Capture every claude.ai cookie as a ready-to-send Cookie
-                // header so the app's requests carry exactly what the
-                // browser session had, not just the session key.
-                let header = claudeCookies
+                // Capture every ChatGPT/OpenAI cookie as a ready-to-send
+                // header so requests use the same authenticated session.
+                let header = chatGPTCookies
                     .map { "\($0.name)=\($0.value)" }
                     .joined(separator: "; ")
                 DispatchQueue.main.async {
-                    self.onCookiesCaptured(sessionValue, orgValue, header)
+                    self.onCookiesCaptured(sessionValue, nil, header)
                 }
             }
         }
@@ -221,7 +202,7 @@ struct CookieLoginSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Log in to Claude")
+                Text("Log in to ChatGPT")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(ClaudeTheme.textPrimary)
                 Spacer()

@@ -7,7 +7,7 @@ import Foundation
 /// repo is public, no token or auth is needed to read releases.
 enum UpdateFeed {
     static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases/latest")!
-    static let assetName = "ClaudeSessionPinger.app.zip"
+    static let assetName = "GPTSessionPinger.app.zip"
 }
 
 struct UpdateInfo: Equatable {

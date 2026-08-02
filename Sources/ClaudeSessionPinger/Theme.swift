@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 enum ClaudeTheme {
-    static let accent = Color(red: 0.80, green: 0.40, blue: 0.27)
+    static let accent = Color(red: 0.06, green: 0.58, blue: 0.40)
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
     static let cornerRadius: CGFloat = 12

@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClaudeSessionPinger",
+    name: "GPTSessionPinger",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "ClaudeSessionPinger",
+            name: "GPTSessionPinger",
             path: "Sources/ClaudeSessionPinger",
             linkerSettings: [
                 .linkedFramework("Carbon")

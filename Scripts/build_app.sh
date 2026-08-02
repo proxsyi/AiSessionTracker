@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="Session Pinger"
+APP_NAME="GPT Session Pinger"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -18,7 +18,7 @@ rm -rf "${DIST_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
-cp "${BUILD_DIR}/ClaudeSessionPinger" "${APP_DIR}/Contents/MacOS/ClaudeSessionPinger"
+cp "${BUILD_DIR}/GPTSessionPinger" "${APP_DIR}/Contents/MacOS/GPTSessionPinger"
 cp "${BUILD_DIR}/SessionPingerWakeHelper" "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
 chmod 755 "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
 cp "Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
@@ -36,7 +36,7 @@ find "${APP_DIR}" -name "._*" -delete
 # re-prompt for access every time you update. Falls back to ad-hoc signing
 # (which changes every build, causing keychain re-prompts) if no identity is
 # found. Override the identity name with CODESIGN_IDENTITY if needed.
-SIGN_IDENTITY="${CODESIGN_IDENTITY:-Session Pinger Signing}"
+SIGN_IDENTITY="${CODESIGN_IDENTITY:-Apple Development}"
 if security find-identity -v -p codesigning | grep -q "${SIGN_IDENTITY}"; then
     echo "Signing with identity: ${SIGN_IDENTITY}"
     codesign --force --deep --sign "${SIGN_IDENTITY}" "${APP_DIR}"
