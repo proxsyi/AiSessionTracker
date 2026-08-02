@@ -207,7 +207,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
                   let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
             guard object["user"] != nil || object["email"] != nil,
-                  let backendURL = URL(string: "https://chatgpt.com/backend-api/me") else { return false }
+                  let backendURL = URL(string: "https://chatgpt.com/backend-api/models") else { return false }
             var backendRequest = URLRequest(url: backendURL)
             backendRequest.timeoutInterval = 10
             backendRequest.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
