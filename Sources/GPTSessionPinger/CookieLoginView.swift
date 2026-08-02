@@ -200,7 +200,15 @@ struct CookieLoginRepresentable: NSViewRepresentable {
             guard let (data, response) = try? await URLSession.shared.data(for: request),
                   let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-            return object["user"] != nil || object["email"] != nil
+            guard object["user"] != nil || object["email"] != nil,
+                  let backendURL = URL(string: "https://chatgpt.com/backend-api/me") else { return false }
+            var backendRequest = URLRequest(url: backendURL)
+            backendRequest.timeoutInterval = 10
+            backendRequest.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+            backendRequest.setValue(desktopSafariUserAgent, forHTTPHeaderField: "User-Agent")
+            guard let (_, backendResponse) = try? await URLSession.shared.data(for: backendRequest),
+                  let backendHTTP = backendResponse as? HTTPURLResponse else { return false }
+            return (200...299).contains(backendHTTP.statusCode)
         }
 
         deinit {
