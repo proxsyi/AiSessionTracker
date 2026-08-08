@@ -67,6 +67,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// accessibility testing can exercise every tab and button. Production
     /// launches never enter this path.
     private func showMenuTestWindow() {
+        // A regular activation policy makes the opt-in preview discoverable
+        // to macOS accessibility tools. Production launches remain accessory
+        // menu-bar apps because this method only runs with the test argument.
+        NSApp.setActivationPolicy(.regular)
         let root = CombinedMenuBarContentView(gptFeature: gptFeature)
             .environmentObject(settings)
             .environmentObject(stats)

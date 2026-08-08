@@ -22,7 +22,6 @@ private struct UsageSettingRow: Identifiable {
     let title: String
     let detail: String
     let scope: GPTUsageScope
-    let isReported: Bool
 }
 
 struct SettingsView: View {
@@ -173,10 +172,7 @@ struct SettingsView: View {
                 trackedUsageSection.padding(14).glassPanel()
                 usageExplanationSection.padding(14).glassPanel()
             case .alerts:
-                if settingsScope != .chatGPT {
-                    weeklyAlertsSection.padding(14).glassPanel()
-                }
-                optionalAlertsSection.padding(14).glassPanel()
+                usageAlertsSection.padding(14).glassPanel()
                 serviceAlertsSection.padding(14).glassPanel()
             case .app:
                 appSection.padding(14).glassPanel()
@@ -249,11 +245,14 @@ struct SettingsView: View {
     private var trackedUsageSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(text: "Tracked usage")
-            Text("Every known or account-reported counter can be hidden independently. Rolling windows remain separate from weekly, monthly, credit and remaining-task limits.")
+            Text("Every counter currently reported by this account can be hidden independently. Rolling windows remain separate from weekly, monthly, credit and remaining-task limits.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             groupTitle(settingsScope?.rawValue ?? "Codex and ChatGPT")
-            ForEach(scopedUsageRows) { row in
-                usageToggle(row)
+            if scopedUsageRows.isEmpty {
+                Text("No usage counters are currently reported for this section. Refresh usage after signing in to check again.")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            } else {
+                ForEach(scopedUsageRows) { row in usageToggle(row) }
             }
         }
     }
@@ -268,29 +267,27 @@ struct SettingsView: View {
         }
     }
 
-    private var weeklyAlertsSection: some View {
+    private var usageAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Codex weekly usage alerts")
-            toggleRow("Enable weekly usage alerts", isOn: alertBinding(for: "codex-weekly"))
-            thresholdButtons(selection: $weeklyThresholds)
-            Text("Choose every threshold you want. Each sends once per reported weekly reset window; the first refresh after launch is only a baseline.")
+            SectionHeader(text: "Usage alerts")
+            Text("Turn on exactly the live counters you want notifications for. The first refresh after launch is only a baseline.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-        }
-    }
-
-    private var optionalAlertsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Per-limit usage alerts")
-            Text("Turn on exactly the Codex or ChatGPT counters you want notifications for. These are off by default and remain separate from weekly alerts.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            Picker("Alert threshold", selection: $additionalAlertThreshold) {
-                ForEach(SettingsStore.availableThresholds, id: \.self) { Text("\($0)%").tag($0) }
+            if let weekly = scopedUsageRows.first(where: { $0.id == "codex-weekly" }) {
+                toggleRow(weekly.title, isOn: alertBinding(for: weekly.id))
+                thresholdButtons(selection: $weeklyThresholds)
             }
-            .pickerStyle(.menu)
-            Text("Enabled percentage-based limits notify at this threshold. Exhausted remaining-use limits notify once when they become unavailable.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            ForEach(scopedUsageRows.filter { $0.id != "codex-weekly" && $0.isReported }) { row in
-                toggleRow(row.title, isOn: alertBinding(for: row.id))
+            let otherRows = scopedUsageRows.filter { $0.id != "codex-weekly" }
+            if !otherRows.isEmpty {
+                Picker("Other counter threshold", selection: $additionalAlertThreshold) {
+                    ForEach(SettingsStore.availableThresholds, id: \.self) { Text("\($0)%").tag($0) }
+                }
+                .pickerStyle(.menu)
+                ForEach(otherRows) { row in toggleRow(row.title, isOn: alertBinding(for: row.id)) }
+                Text("Percentage counters notify at the selected threshold. Remaining-use counters notify once when ChatGPT reports them unavailable.")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            } else if scopedUsageRows.isEmpty {
+                Text("No alertable usage counters are currently reported for this section.")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
         }
     }
@@ -356,20 +353,16 @@ struct SettingsView: View {
     }
 
     private var usageSettingRows: [UsageSettingRow] {
-        let live = appState.usage?.tracks ?? []
         var rows: [UsageSettingRow] = []
-        let hasLiveModels = live.contains { $0.scope == .chatGPTModel }
-        for known in KnownUsageTrack.all where known.id != "chatgpt-model-limits" || !hasLiveModels {
-            let reported = live.contains { $0.preferenceID == known.id }
-            rows.append(UsageSettingRow(id: known.id, title: known.title, detail: known.detail, scope: known.scope, isReported: reported))
-        }
-        for track in live where !rows.contains(where: { $0.id == track.preferenceID }) {
+        for track in appState.usage?.tracks ?? [] where !rows.contains(where: { $0.id == track.preferenceID }) {
             rows.append(UsageSettingRow(
                 id: track.preferenceID,
                 title: track.title,
-                detail: track.windowSeconds.map(windowDescription) ?? track.remainingText ?? "Account-reported usage counter",
-                scope: track.scope,
-                isReported: true
+                detail: track.windowSeconds.map(windowDescription)
+                    ?? track.remainingText
+                    ?? track.valueText
+                    ?? "Account-reported usage counter",
+                scope: track.scope
             ))
         }
         return rows
@@ -416,8 +409,8 @@ struct SettingsView: View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title).font(.system(size: 11, weight: .medium)).foregroundColor(GPTTheme.textPrimary)
-                Text(row.detail + (row.isReported ? " · Live" : " · Not reported"))
-                    .font(.system(size: 9)).foregroundColor(row.isReported ? GPTTheme.textSecondary : GPTTheme.textSecondary.opacity(0.65))
+                Text(row.detail + " · Live")
+                    .font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
             }
             Spacer()
             Toggle("", isOn: visibilityBinding(for: row.id)).labelsHidden().toggleStyle(GPTGlassToggleStyle())
@@ -472,7 +465,7 @@ struct SettingsView: View {
     }
 
     private func windowDescription(_ seconds: Int) -> String {
-        if seconds % 604_800 == 0 { return "Rolling \(seconds / 604_800)-day window" }
+        if seconds % 86_400 == 0 { return "Rolling \(seconds / 86_400)-day window" }
         if seconds % 3_600 == 0 { return "Rolling \(seconds / 3_600)-hour window" }
         return "Rolling \(seconds / 60)-minute window"
     }

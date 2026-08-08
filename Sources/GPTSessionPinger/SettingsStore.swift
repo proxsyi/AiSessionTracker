@@ -4,32 +4,6 @@ extension Notification.Name {
     static let commandIShortcutSettingChanged = Notification.Name("commandIShortcutSettingChanged")
 }
 
-struct KnownUsageTrack: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let scope: GPTUsageScope
-    let detail: String
-
-    static let all: [KnownUsageTrack] = [
-        KnownUsageTrack(id: "codex-weekly", title: "Codex weekly usage", scope: .codex, detail: "Longer-term agentic allowance"),
-        KnownUsageTrack(id: "codex-rolling-5h", title: "Codex rolling five-hour usage", scope: .codex, detail: "Shared local and cloud agentic window"),
-        KnownUsageTrack(id: "code-review-weekly", title: "Code Review weekly", scope: .codex, detail: "Separate GitHub-hosted review allowance"),
-        KnownUsageTrack(id: "code-review-rolling-5h", title: "Code Review rolling five-hour usage", scope: .codex, detail: "Short review window when reported"),
-        KnownUsageTrack(id: "codex-credits", title: "Purchased credits", scope: .codex, detail: "Shared agentic credit balance"),
-        KnownUsageTrack(id: "workspace-spend-control", title: "Workspace spend control", scope: .workspace, detail: "Workspace limit or overage state"),
-        KnownUsageTrack(id: "chatgpt-message-usage", title: "ChatGPT message usage", scope: .chatGPTModel, detail: "Account-wide message allowance when reported"),
-        KnownUsageTrack(id: "chatgpt-model-limits", title: "ChatGPT model limits", scope: .chatGPTModel, detail: "Every model-specific rolling window reported by ChatGPT"),
-        KnownUsageTrack(id: "feature-deep-research", title: "Deep research", scope: .chatGPTFeature, detail: "Remaining research tasks"),
-        KnownUsageTrack(id: "feature-image-generation", title: "Image generation", scope: .chatGPTFeature, detail: "Remaining image generations"),
-        KnownUsageTrack(id: "feature-file-uploads", title: "File uploads", scope: .chatGPTFeature, detail: "Rolling or daily upload allowance"),
-        KnownUsageTrack(id: "feature-file-storage", title: "File storage", scope: .chatGPTFeature, detail: "Library storage when reported"),
-        KnownUsageTrack(id: "feature-paste-to-file", title: "Paste to file", scope: .chatGPTFeature, detail: "Large-paste attachment allowance"),
-        KnownUsageTrack(id: "feature-voice", title: "Voice", scope: .chatGPTFeature, detail: "Voice allowance when reported"),
-        KnownUsageTrack(id: "feature-video-screenshare", title: "Video and screen share", scope: .chatGPTFeature, detail: "Daily multimedia allowance when reported"),
-        KnownUsageTrack(id: "feature-scheduled-tasks", title: "Scheduled tasks", scope: .chatGPTFeature, detail: "Active task capacity when reported")
-    ]
-}
-
 final class SettingsStore: ObservableObject {
     /// Reuse the standalone GPT app's preference domain when this feature
     /// runs inside the combined tracker, without colliding with Claude settings.

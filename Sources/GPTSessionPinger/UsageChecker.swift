@@ -130,6 +130,24 @@ enum UsageChecker {
             }
         }
 
+        if let accountID = auth.accountID,
+           let request = ChatGPTWebSession.makeBackendRequest(
+               path: "/accounts/\(accountID)/remaining_balance",
+               auth: auth,
+               cookieHeader: cookies
+           ), let (data, response) = try? await perform(request),
+           let http = response as? HTTPURLResponse {
+            if (200...299).contains(http.statusCode),
+               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let creditTrack = parseCreditBalanceTrack(object) {
+                successfulSourceCount += 1
+                tracks.removeAll { $0.preferenceID == creditTrack.preferenceID }
+                tracks.append(creditTrack)
+            } else if [401, 403].contains(http.statusCode) {
+                sawSessionFailure = true
+            }
+        }
+
         let initBody = try JSONSerialization.data(withJSONObject: [
             "gizmo_id": NSNull(),
             "requested_default_model": NSNull(),
@@ -201,7 +219,7 @@ enum UsageChecker {
         }
         if let credits = object["credits"] as? [String: Any] {
             let unlimited = credits["unlimited"] as? Bool == true
-            let balance = string(credits["balance"]) ?? numeric(credits["balance"]).map { String(format: "%.2f", $0) }
+            let balance = numeric(credits["balance"])
             tracks.append(GPTUsageTrack(
                 id: "codex-credits",
                 scope: .codex,
@@ -215,7 +233,7 @@ enum UsageChecker {
                 // Present it as an exact balance, not an account failure.
                 isBlocked: false,
                 modelSlug: nil,
-                valueText: unlimited ? "Unlimited" : balance.map { "\($0) credits" }
+                valueText: unlimited ? "Unlimited" : balance.map { "\(usd($0 / creditsPerUSD)) remaining" }
             ))
         }
         if let spendControl = object["spend_control"] as? [String: Any],
@@ -235,6 +253,39 @@ enum UsageChecker {
             ))
         }
         return tracks
+    }
+
+    /// ChatGPT reports credit grants separately from Codex usage. Summing the
+    /// server-provided grant and remaining amounts gives an exact denominator
+    /// for the bar instead of guessing one from the current balance.
+    static func parseCreditBalanceTrack(_ object: [String: Any]) -> GPTUsageTrack? {
+        let details = (object["expiring_balance_details"] as? [[String: Any]]) ?? []
+        let granted = details.compactMap { numeric($0["amount_granted"]) }.reduce(0, +)
+        let detailedRemaining = details.compactMap { numeric($0["amount_remaining"]) }.reduce(0, +)
+        guard let topLevelRemaining = numeric(object["balance"]), topLevelRemaining >= 0 else { return nil }
+        let remaining = details.isEmpty ? topLevelRemaining : detailedRemaining
+        let reset = details.compactMap { date($0["expiry_date"]) }.min()
+        let total = granted > 0 ? granted : nil
+        let percent = total.map { clampedPercent((1 - remaining / $0) * 100) }
+        let valueText: String
+        if let total {
+            valueText = "\(usd(remaining / creditsPerUSD)) / \(usd(total / creditsPerUSD)) left"
+        } else {
+            valueText = "\(usd(remaining / creditsPerUSD)) remaining"
+        }
+        return GPTUsageTrack(
+            id: "codex-credits",
+            scope: .codex,
+            title: "Purchased credits",
+            usedPercent: percent,
+            remaining: nil,
+            limit: nil,
+            resetsAt: reset,
+            windowSeconds: nil,
+            isBlocked: false,
+            modelSlug: nil,
+            valueText: valueText
+        )
     }
 
     private static func parseRateLimitGroup(
@@ -384,6 +435,12 @@ enum UsageChecker {
         if let number = value as? NSNumber { return number.doubleValue }
         if let string = value as? String { return Double(string) }
         return nil
+    }
+
+    private static let creditsPerUSD = 25.0
+
+    private static func usd(_ value: Double) -> String {
+        String(format: "$%.2f", locale: Locale(identifier: "en_US_POSIX"), value)
     }
 
     private static func clampedPercent(_ value: Double) -> Int {

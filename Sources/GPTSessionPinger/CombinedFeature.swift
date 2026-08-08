@@ -47,13 +47,9 @@ public final class GPTFeatureState: ObservableObject {
     }
 
     public var menuBarMeterOptions: [GPTMenuBarMeterOption] {
-        var options = [
-            GPTMenuBarMeterOption(id: "codex-weekly", title: "Codex weekly (7 day)"),
-            GPTMenuBarMeterOption(id: "codex-rolling-5h", title: "Codex rolling (5 hour)"),
-            GPTMenuBarMeterOption(id: "code-review-weekly", title: "Code Review weekly"),
-            GPTMenuBarMeterOption(id: "chatgpt-message-usage", title: "All ChatGPT messages")
-        ]
-        for track in appState.usage?.tracks ?? [] where track.usedPercent != nil {
+        var options: [GPTMenuBarMeterOption] = []
+        for track in appState.usage?.tracks ?? []
+            where track.usedPercent != nil && settings.isUsageTrackVisible(track.preferenceID) {
             let option = GPTMenuBarMeterOption(id: track.preferenceID, title: track.title)
             if !options.contains(where: { $0.id == option.id }) { options.append(option) }
         }
@@ -61,7 +57,8 @@ public final class GPTFeatureState: ObservableObject {
     }
 
     public func menuBarPercent(for preferenceID: String) -> Int? {
-        appState.usage?.tracks.first(where: { $0.preferenceID == preferenceID })?.usedPercent
+        guard settings.isUsageTrackVisible(preferenceID) else { return nil }
+        return appState.usage?.tracks.first(where: { $0.preferenceID == preferenceID })?.usedPercent
     }
 
     public var displayedPlan: String? {

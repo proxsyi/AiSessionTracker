@@ -214,6 +214,7 @@ struct MenuBarContentView: View {
 
     private func usageDetail(_ track: GPTUsageTrack) -> String? {
         var parts: [String] = []
+        if track.usedPercent != nil, let valueText = track.valueText { parts.append(valueText) }
         if let remaining = track.remainingText { parts.append(remaining) }
         if let reset = track.resetsAt { parts.append("Resets \(reset.formatted(date: reset.timeIntervalSinceNow > 86_400 ? .abbreviated : .omitted, time: .shortened))") }
         if track.isBlocked { parts.append("Currently unavailable") }

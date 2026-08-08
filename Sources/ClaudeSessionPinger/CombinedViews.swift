@@ -322,12 +322,18 @@ struct CombinedSettingsView: View {
                 Divider()
 
                 Toggle("Show GPT percentage", isOn: $selection.gptPercentVisible)
-                Picker("GPT percentage source", selection: $selection.gptMeterSourceID) {
-                    ForEach(gptMenuBarMeterOptions) { option in
-                        Text(option.title).tag(option.id)
+                if gptMenuBarMeterOptions.isEmpty {
+                    Text("No visible GPT percentage counters are currently reported.")
+                        .font(.system(size: 11))
+                        .foregroundColor(ClaudeTheme.textSecondary)
+                } else {
+                    Picker("GPT percentage source", selection: $selection.gptMeterSourceID) {
+                        ForEach(gptMenuBarMeterOptions) { option in
+                            Text(option.title).tag(option.id)
+                        }
                     }
+                    .disabled(!selection.gptPercentVisible && !selection.menuBarIconVisible)
                 }
-                .disabled(!selection.gptPercentVisible && !selection.menuBarIconVisible)
             }
             .padding(16)
             .glassPanel()
@@ -340,16 +346,17 @@ struct CombinedSettingsView: View {
         .padding(20)
         .frame(width: 440)
         .background(WindowGlassBackground(clearGlass: true).ignoresSafeArea())
+        .onAppear { selectFirstAvailableGPTMeterIfNeeded() }
+        .onChange(of: gptMenuBarMeterOptions) { _ in selectFirstAvailableGPTMeterIfNeeded() }
     }
 
     private var gptMenuBarMeterOptions: [GPTMenuBarMeterOption] {
-        var options = gptFeature.menuBarMeterOptions
-        if !options.contains(where: { $0.id == selection.gptMeterSourceID }) {
-            options.append(GPTMenuBarMeterOption(
-                id: selection.gptMeterSourceID,
-                title: "Selected counter (currently unavailable)"
-            ))
-        }
-        return options
+        gptFeature.menuBarMeterOptions
+    }
+
+    private func selectFirstAvailableGPTMeterIfNeeded() {
+        guard !gptMenuBarMeterOptions.contains(where: { $0.id == selection.gptMeterSourceID }),
+              let first = gptMenuBarMeterOptions.first else { return }
+        selection.gptMeterSourceID = first.id
     }
 }

@@ -95,7 +95,7 @@ final class UsageCheckerTests: XCTestCase {
 
         XCTAssertEqual(tracks.first?.title, "Code review (7 day)")
         XCTAssertNotNil(tracks.first?.resetsAt)
-        XCTAssertEqual(tracks.first(where: { $0.id == "codex-credits" })?.valueText, "45.25 credits")
+        XCTAssertEqual(tracks.first(where: { $0.id == "codex-credits" })?.valueText, "$1.81 remaining")
         XCTAssertFalse(tracks.first(where: { $0.id == "codex-credits" })?.isBlocked ?? true)
         XCTAssertEqual(tracks.first(where: { $0.id == "workspace-spend-control" })?.valueText, "Available")
     }
@@ -106,8 +106,24 @@ final class UsageCheckerTests: XCTestCase {
         ])
 
         let credits = try XCTUnwrap(tracks.first)
-        XCTAssertEqual(credits.valueText, "0.00 credits")
+        XCTAssertEqual(credits.valueText, "$0.00 remaining")
         XCTAssertFalse(credits.isBlocked)
+    }
+
+    func testCreditBalanceUsesReportedGrantAsRealDollarDenominator() throws {
+        let track = try XCTUnwrap(UsageChecker.parseCreditBalanceTrack([
+            "balance": "1875",
+            "expiring_balance_details": [[
+                "amount_granted": "2500",
+                "amount_remaining": "1875",
+                "expiry_date": "2027-08-08T02:00:54.336697Z"
+            ]]
+        ]))
+
+        XCTAssertEqual(track.preferenceID, "codex-credits")
+        XCTAssertEqual(track.usedPercent, 25)
+        XCTAssertEqual(track.valueText, "$75.00 / $100.00 left")
+        XCTAssertNotNil(track.resetsAt)
     }
 
     func testModelAndFeatureTrackIDsRemainStableAcrossPayloadOrdering() throws {
