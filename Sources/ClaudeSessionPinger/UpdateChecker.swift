@@ -8,7 +8,7 @@ import Foundation
 enum UpdateFeed {
     /// The combined tracker has its own feed, tag prefix, and asset. It can
     /// therefore never select a standalone Claude or GPT release.
-    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases?per_page=30")!
+    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/AiSessionTracker/releases?per_page=30")!
     static let tagPrefix = "tracker-v"
     static let assetName = "SessionTracker.app.zip"
 }

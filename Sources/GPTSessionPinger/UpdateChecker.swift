@@ -9,7 +9,7 @@ enum UpdateFeed {
     /// GPT releases share the repository with Claude releases, so this app
     /// reads the release list and accepts only `gpt-v*` tags carrying the GPT
     /// asset. The two installed apps can therefore update independently.
-    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/ClaudeSessionPinger/releases?per_page=30")!
+    static let latestReleaseAPIURL = URL(string: "https://api.github.com/repos/proxsyi/AiSessionTracker/releases?per_page=30")!
     static let tagPrefix = "gpt-v"
     static let assetName = "GPTSessionPinger.app.zip"
 }
