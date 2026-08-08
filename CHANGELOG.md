@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-- Unified the Claude, Codex, and ChatGPT dashboard hierarchy: usage and refresh, tracked-service status, then the real next-session or reset countdown.
-- Replaced the Codex hero percentage with the same compact usage bars used by Claude and added server-reported ChatGPT message usage when the account exposes it.
-- Added Claude account-level detection, fixed numeric server reset timestamps, and made missing Claude reset metadata fall back to a calculated next opportunity instead of “Unavailable.”
-- Restored one-press Command-U and Command-I behavior while preserving normal outside-click dismissal.
-- Reduced the shared popover height and kept all three tabs at one stable size.
-- Added independent controls for the menu-bar icon, Claude/GPT percentage visibility, and the real usage counter that supplies each percentage.
+## v1.16.3
+
+- Isolated the standalone Claude preferences domain, updater feed, credentials, and wake-helper identity from the combined and GPT apps.
+- Kept Settings in front while using the menu bar, preserved normal outside-click dismissal, and retained the verified one-press Command-U behavior.
+- Standardized live-account usage, provider alerts, and credential controls while removing counters that are not backed by server data.
+- Ships with Developer ID hardened-runtime signing, Apple notarization, stapling, and Gatekeeper verification.
 
 ## v0.1.2 (combined branch)
 
