@@ -10,6 +10,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let appState: AppState
     private let gptFeature: GPTFeatureState
     private let selection: CombinedSelectionStore
+    private var deactivationObserver: NSObjectProtocol?
 
     init(
         settings: SettingsStore,
@@ -32,6 +33,21 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
         appState.toggleSettingsWindow = { [weak self] in
             self?.toggle()
+        }
+        deactivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.restoreFocusAfterMenuBarHover()
+            }
+        }
+    }
+
+    deinit {
+        if let deactivationObserver {
+            NotificationCenter.default.removeObserver(deactivationObserver)
         }
     }
 
@@ -111,5 +127,42 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             .fullScreenAuxiliary,
             .fullScreenDisallowsTiling
         ])
+    }
+
+    static func shouldRestoreFocusForMenuBarHover(
+        mouseLocation: NSPoint,
+        pressedMouseButtons: Int,
+        screenFrames: [NSRect]
+    ) -> Bool {
+        guard pressedMouseButtons == 0 else { return false }
+        return screenFrames.contains { frame in
+            mouseLocation.x >= frame.minX
+                && mouseLocation.x <= frame.maxX
+                && mouseLocation.y >= frame.maxY - 48
+                && mouseLocation.y <= frame.maxY
+        }
+    }
+
+    private func restoreFocusAfterMenuBarHover() {
+        guard let window, window.isVisible,
+              Self.shouldRestoreFocusForMenuBarHover(
+                mouseLocation: NSEvent.mouseLocation,
+                pressedMouseButtons: NSEvent.pressedMouseButtons,
+                screenFrames: NSScreen.screens.map(\.frame)
+              ) else { return }
+
+        // The prior full-screen app finishes revealing its menu bar after the
+        // resign-active notification. Wait one run-loop turn, then restore
+        // only if the pointer is still hovering at the menu-bar edge.
+        DispatchQueue.main.async { [weak window] in
+            guard let window, window.isVisible,
+                  Self.shouldRestoreFocusForMenuBarHover(
+                    mouseLocation: NSEvent.mouseLocation,
+                    pressedMouseButtons: NSEvent.pressedMouseButtons,
+                    screenFrames: NSScreen.screens.map(\.frame)
+                  ) else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 }
