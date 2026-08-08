@@ -1,5 +1,5 @@
 import XCTest
-@testable import CombinedSessionTracker
+@testable import ClaudeSessionPinger
 
 final class ClaudeUsageCheckerTests: XCTestCase {
     func testAccountPlanFindsNestedSubscriptionTier() {

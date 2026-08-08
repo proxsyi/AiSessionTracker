@@ -1,6 +1,6 @@
 import AppKit
 import XCTest
-@testable import CombinedSessionTracker
+@testable import ClaudeSessionPinger
 
 @MainActor
 final class PopoverLifecycleTests: XCTestCase {

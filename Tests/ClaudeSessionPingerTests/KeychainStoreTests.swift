@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import CombinedSessionTracker
+@testable import ClaudeSessionPinger
 
 final class ClaudeKeychainStoreTests: XCTestCase {
     func testWebSessionRecordRoundTripsBothCredentialParts() throws {

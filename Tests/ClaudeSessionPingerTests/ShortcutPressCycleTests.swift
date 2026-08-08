@@ -1,5 +1,5 @@
 import Testing
-@testable import CombinedSessionTracker
+@testable import ClaudeSessionPinger
 
 @Suite("Shortcut press cycle")
 struct ShortcutPressCycleTests {

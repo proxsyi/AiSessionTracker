@@ -1,5 +1,4 @@
 import AppKit
-import GPTTrackerFeature
 import SwiftUI
 
 @MainActor
@@ -8,22 +7,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let settings: SettingsStore
     private let stats: StatsStore
     private let appState: AppState
-    private let gptFeature: GPTFeatureState
-    private let selection: CombinedSelectionStore
     private var deactivationObserver: NSObjectProtocol?
 
-    init(
-        settings: SettingsStore,
-        stats: StatsStore,
-        appState: AppState,
-        gptFeature: GPTFeatureState,
-        selection: CombinedSelectionStore
-    ) {
+    init(settings: SettingsStore, stats: StatsStore, appState: AppState) {
         self.settings = settings
         self.stats = stats
         self.appState = appState
-        self.gptFeature = gptFeature
-        self.selection = selection
         super.init()
         appState.requestShowSettings = { [weak self] in
             self?.show()
@@ -39,9 +28,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             object: NSApp,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.restoreFocusAfterMenuBarHover()
-            }
+            Task { @MainActor in self?.restoreFocusAfterMenuBarHover() }
         }
     }
 
@@ -80,11 +67,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let rootView = CombinedSettingsView(gptFeature: gptFeature)
+        let rootView = SettingsView()
             .environmentObject(settings)
             .environmentObject(stats)
             .environmentObject(appState)
-            .environmentObject(selection)
         let hosting = NSHostingController(rootView: rootView)
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "Settings"
@@ -100,7 +86,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         newWindow.titlebarAppearsTransparent = true
         newWindow.isOpaque = false
         newWindow.backgroundColor = .clear
-        newWindow.minSize = NSSize(width: 500, height: 700)
+        newWindow.minSize = NSSize(width: 380, height: 420)
         newWindow.isReleasedWhenClosed = false
         Self.configureWindowPresence(newWindow)
         newWindow.delegate = self
@@ -115,9 +101,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         window = nil
     }
 
-    /// A menu-bar-only app does not own the system menu bar. Keep Settings at
-    /// utility-window level so revealing that menu bar cannot place the
-    /// previously active app's normal windows above it.
     static func configureWindowPresence(_ window: NSWindow) {
         window.level = .floating
         window.hidesOnDeactivate = false
@@ -150,10 +133,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 pressedMouseButtons: NSEvent.pressedMouseButtons,
                 screenFrames: NSScreen.screens.map(\.frame)
               ) else { return }
-
-        // The prior full-screen app finishes revealing its menu bar after the
-        // resign-active notification. Wait one run-loop turn, then restore
-        // only if the pointer is still hovering at the menu-bar edge.
         DispatchQueue.main.async { [weak window] in
             guard let window, window.isVisible,
                   Self.shouldRestoreFocusForMenuBarHover(

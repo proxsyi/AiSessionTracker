@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="Session Tracker"
+APP_NAME="Session Pinger"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -14,13 +14,13 @@ trap 'rm -rf "${WORK_DIR}"' EXIT
 
 swift build -c release
 
-# The combined tracker is a third, separately identified product. Building it
-# never removes either standalone app from dist or /Applications.
+# Claude and GPT are maintained on separate branches in this shared repo.
+# Replace only the Claude product so building one app never removes the other.
 rm -rf "${DIST_APP_DIR}"
 mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 
-cp "${BUILD_DIR}/CombinedSessionTracker" "${APP_DIR}/Contents/MacOS/CombinedSessionTracker"
+cp "${BUILD_DIR}/ClaudeSessionPinger" "${APP_DIR}/Contents/MacOS/ClaudeSessionPinger"
 cp "${BUILD_DIR}/SessionPingerWakeHelper" "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
 chmod 755 "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
 cp "Resources/Info.plist" "${APP_DIR}/Contents/Info.plist"
@@ -33,29 +33,20 @@ cp "Resources/AppIcon.icns" "${APP_DIR}/Contents/Resources/AppIcon.icns"
 xattr -cr "${APP_DIR}"
 find "${APP_DIR}" -name "._*" -delete
 
-# Distribution builds require Developer ID Application signing; development
-# builds may use the local Apple Development identity for on-device testing.
+# Prefer the user's Apple Development certificate, which carries their Team
+# ID. An explicit CODESIGN_IDENTITY always wins; the previous local signing
+# identity remains a fallback for development machines without an Apple cert.
 AVAILABLE_IDENTITIES="$(security find-identity -v -p codesigning)"
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
     SIGN_IDENTITY="${CODESIGN_IDENTITY}"
-elif [[ "${DISTRIBUTION:-0}" == "1" && "${AVAILABLE_IDENTITIES}" == *"Developer ID Application:"* ]]; then
-    SIGN_IDENTITY="$(printf '%s\n' "${AVAILABLE_IDENTITIES}" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)"
 elif [[ "${AVAILABLE_IDENTITIES}" == *"Apple Development:"* ]]; then
     SIGN_IDENTITY="$(printf '%s\n' "${AVAILABLE_IDENTITIES}" | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' | head -n 1)"
 else
     SIGN_IDENTITY="Session Pinger Signing"
 fi
-if [[ "${DISTRIBUTION:-0}" == "1" && "${SIGN_IDENTITY}" != Developer\ ID\ Application:* ]]; then
-    echo "ERROR: distribution builds require a Developer ID Application certificate." >&2
-    exit 1
-fi
 if printf '%s\n' "${AVAILABLE_IDENTITIES}" | grep -Fq "${SIGN_IDENTITY}"; then
     echo "Signing with identity: ${SIGN_IDENTITY}"
-    if [[ "${DISTRIBUTION:-0}" == "1" ]]; then
-        codesign --force --deep --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${APP_DIR}"
-    else
-        codesign --force --deep --sign "${SIGN_IDENTITY}" "${APP_DIR}"
-    fi
+    codesign --force --deep --sign "${SIGN_IDENTITY}" "${APP_DIR}"
 else
     echo "WARNING: code-signing identity \"${SIGN_IDENTITY}\" not found -- using ad-hoc signing."
     echo "         The keychain will re-prompt on every update until this identity exists."
