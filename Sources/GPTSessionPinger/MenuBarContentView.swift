@@ -31,7 +31,6 @@ struct MenuBarContentView: View {
                     updateBanner(update).trackerMenuCard()
                 }
                 tabContent(embeddedTab)
-                serviceAndRefresh.trackerMenuCard()
             }
             .gptGlassContainer(spacing: 12)
             .environment(\.gptClearGlass, settings.preferClearGlass)
@@ -46,8 +45,6 @@ struct MenuBarContentView: View {
                     usageTabs
                 }
                 usageContent
-                serviceAndRefresh
-                    .trackerMenuCard()
                 actionsSection
             }
             .gptGlassContainer(spacing: 12)
@@ -109,14 +106,12 @@ struct MenuBarContentView: View {
     private func tabContent(_ tab: UsageDisplayTab) -> some View {
         let tracks = visibleTracks.filter { tab == .codex ? $0.isCodexTrack : !$0.isCodexTrack }
         VStack(alignment: .leading, spacing: 12) {
-            if tab == .codex, let weekly = visibleWeeklyTrack {
-                heroTrack(weekly).trackerMenuCard()
-                let other = tracks.filter { $0.id != weekly.id }
-                if !other.isEmpty { compactTracks(title: "Other Codex limits", tracks: other).trackerMenuCard() }
+            if tab == .chatGPT {
+                chatGPTUsageCard(tracks: tracks).trackerMenuCard()
             } else {
-                compactTracks(title: tab == .codex ? "Codex usage" : "ChatGPT usage", tracks: tracks)
-                    .trackerMenuCard()
+                usageCard(title: "Codex usage", tracks: tracks).trackerMenuCard()
             }
+            serviceStatus(for: tab).trackerMenuCard()
             if let reset = primaryResetDate(for: tracks) {
                 resetCountdown(reset).trackerMenuCard()
             }
@@ -128,17 +123,11 @@ struct MenuBarContentView: View {
 
     private var combinedContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let weekly = visibleWeeklyTrack {
-                heroTrack(weekly).trackerMenuCard()
-            }
-            let otherCodex = visibleTracks.filter { $0.isCodexTrack && $0.preferenceID != "codex-weekly" }
-            if !otherCodex.isEmpty {
-                compactTracks(title: "Other Codex limits", tracks: otherCodex).trackerMenuCard()
-            }
+            let codex = visibleTracks.filter(\.isCodexTrack)
+            usageCard(title: "Codex usage", tracks: codex).trackerMenuCard()
             let chatGPT = visibleTracks.filter { !$0.isCodexTrack }
-            if !chatGPT.isEmpty {
-                compactTracks(title: "ChatGPT limits", tracks: chatGPT).trackerMenuCard()
-            }
+            chatGPTUsageCard(tracks: chatGPT).trackerMenuCard()
+            serviceStatus(for: .chatGPT).trackerMenuCard()
             if let reset = primaryResetDate(for: visibleTracks) {
                 resetCountdown(reset).trackerMenuCard()
             }
@@ -148,26 +137,7 @@ struct MenuBarContentView: View {
         }
     }
 
-    private func heroTrack(_ track: GPTUsageTrack) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(text: "Codex weekly usage")
-            HStack(alignment: .firstTextBaseline) {
-                Text(track.usedPercent.map { "\($0)%" } ?? "—")
-                    .font(.system(size: 32, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundColor(usageColor(track.usedPercent))
-                Spacer()
-                if track.isBlocked {
-                    Text("LIMIT REACHED").font(.system(size: 9, weight: .bold)).foregroundColor(.red)
-                }
-            }
-            UsageBar(percent: track.usedPercent, color: usageColor(track.usedPercent))
-            if let detail = usageDetail(track) {
-                Text(detail).font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            }
-        }
-    }
-
-    private func compactTracks(title: String, tracks: [GPTUsageTrack]) -> some View {
+    private func usageCard(title: String, tracks: [GPTUsageTrack]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: title)
             if tracks.isEmpty {
@@ -180,6 +150,38 @@ struct MenuBarContentView: View {
             if let error = appState.usageError {
                 Text(error).font(.system(size: 11)).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
             }
+            refreshRow
+        }
+    }
+
+    private func chatGPTUsageCard(tracks: [GPTUsageTrack]) -> some View {
+        let messages = tracks.filter { $0.scope == .chatGPTModel }
+        let features = tracks.filter { $0.scope == .chatGPTFeature }
+        return VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "ChatGPT usage")
+            Text("Message usage")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(GPTTheme.textPrimary)
+            if messages.isEmpty {
+                Text(appState.usage == nil
+                    ? "No message data yet"
+                    : "Message limits are not reported for this account.")
+                    .font(.system(size: 10))
+                    .foregroundColor(GPTTheme.textSecondary)
+            } else {
+                ForEach(messages) { usageRow($0) }
+            }
+            if !features.isEmpty {
+                Divider().opacity(0.35)
+                Text("Feature usage")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(GPTTheme.textPrimary)
+                ForEach(features) { usageRow($0) }
+            }
+            if let error = appState.usageError {
+                Text(error).font(.system(size: 11)).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            refreshRow
         }
     }
 
@@ -187,18 +189,18 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(track.title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(GPTTheme.textPrimary)
                 Spacer()
                 Text(trackValue(track))
-                    .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundColor(track.isBlocked ? .red : usageColor(track.usedPercent))
             }
             if track.usedPercent != nil {
                 UsageBar(percent: track.usedPercent, color: usageColor(track.usedPercent))
             }
             if let detail = usageDetail(track) {
-                Text(detail).font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
+                Text(detail).font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
         }
     }
@@ -228,7 +230,7 @@ struct MenuBarContentView: View {
                 .minimumScaleFactor(0.72)
             Text(reset.formatted(date: .abbreviated, time: .shortened))
                 .font(.system(size: 10))
-                .foregroundColor(GPTTheme.textSecondary)
+                .foregroundColor(GPTTheme.textSecondary.opacity(0.8))
         }
     }
 
@@ -266,7 +268,7 @@ struct MenuBarContentView: View {
         }
     }
 
-    private var serviceAndRefresh: some View {
+    private func serviceStatus(for tab: UsageDisplayTab) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Circle().fill(serviceStatusColor).frame(width: 7, height: 7)
@@ -275,20 +277,44 @@ struct MenuBarContentView: View {
                     .foregroundColor(GPTTheme.textPrimary)
                 Spacer()
             }
-            HStack {
-                Text(lastUpdatedText).font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
-                Spacer()
-                Button(appState.isRefreshingUsage ? "Refreshing…" : "Refresh") {
-                    Task { await appState.refreshUsage() }
-                }
-                .gptGhostButton()
-                .disabled(appState.isRefreshingUsage)
-            }
+            Text(serviceStatusDetail(for: tab))
+                .font(.system(size: 10))
+                .foregroundColor(GPTTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .contentShape(Rectangle())
         .onTapGesture {
             if let url = URL(string: "https://status.openai.com") { NSWorkspace.shared.open(url) }
         }
+    }
+
+    private var refreshRow: some View {
+        HStack {
+            Text(lastUpdatedText).font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            Spacer()
+            Button(appState.isRefreshingUsage ? "Refreshing…" : "Refresh") {
+                Task { await appState.refreshUsage() }
+            }
+            .gptGhostButton()
+            .disabled(appState.isRefreshingUsage)
+        }
+    }
+
+    private func serviceStatusDetail(for tab: UsageDisplayTab) -> String {
+        let services = switch tab {
+        case .codex: "Tracks Codex, code review, OpenAI API, and platform services"
+        case .chatGPT: "Tracks ChatGPT, file uploads, images, voice, and OpenAI services"
+        }
+        guard let checked = appState.serviceStatus?.checkedAt else { return services }
+        return "\(services) · checked \(relativeTimeText(since: checked))"
+    }
+
+    private func relativeTimeText(since date: Date) -> String {
+        let seconds = Int(max(0, now.timeIntervalSince(date)))
+        if seconds < 60 { return "just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "\(minutes) min ago" }
+        return "\(minutes / 60)h ago"
     }
 
     private var visibleTracks: [GPTUsageTrack] {
@@ -307,7 +333,9 @@ struct MenuBarContentView: View {
     }
 
     private func primaryResetDate(for tracks: [GPTUsageTrack]) -> Date? {
-        if let weekly = tracks.first(where: { $0.preferenceID == "codex-weekly" }), let reset = weekly.resetsAt { return reset }
+        if let weekly = tracks.first(where: { $0.preferenceID == "codex-weekly" }),
+           let reset = weekly.resetsAt,
+           reset > now { return reset }
         return tracks.compactMap(\.resetsAt).filter { $0 > now }.min()
     }
 
@@ -335,7 +363,7 @@ struct MenuBarContentView: View {
 
     private var lastUpdatedText: String {
         guard let fetched = appState.usage?.fetchedAt else { return "Not updated yet" }
-        return "Updated \(fetched.formatted(date: .omitted, time: .shortened))"
+        return "Last updated: \(fetched.formatted(date: .omitted, time: .shortened))"
     }
 
     private func updateBanner(_ update: UpdateInfo) -> some View {

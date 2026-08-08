@@ -34,7 +34,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
-        popover.contentSize = NSSize(width: 360, height: 680)
+        popover.contentSize = NSSize(width: 360, height: 540)
         self.popover = popover
         super.init()
 
@@ -44,7 +44,14 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             object: NSApp,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.closePopover() }
+            Task { @MainActor in
+                guard let self,
+                      Self.shouldCloseOnDeactivate(
+                        shortcutKeyIsDown: self.shortcutKeyIsDown,
+                        popoverBehavior: self.popover.behavior
+                      ) else { return }
+                self.closePopover()
+            }
         }
         let contentView = CombinedMenuBarContentView(gptFeature: gptFeature)
             .environmentObject(settings)
@@ -228,21 +235,39 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         removeKeyboardDismissalMonitors()
     }
 
-    /// Menu bar shows a color-coded sparkle plus the current session usage.
-    /// At 100%, crimson and a live reset countdown replace the percentage.
+    static func shouldCloseOnDeactivate(
+        shortcutKeyIsDown: Bool,
+        popoverBehavior: NSPopover.Behavior
+    ) -> Bool {
+        !shortcutKeyIsDown && popoverBehavior == .transient
+    }
+
+    /// Menu bar presentation follows the user's selected real Claude/GPT
+    /// counters. Text retains each service's brand color while the icon keeps
+    /// threshold colors as the at-a-glance usage warning.
     private func updateButton() {
         guard let button = statusItem.button else { return }
-        let claudePercent = selection.claudeVisible ? appState.usage?.sessionPercent : nil
-        let gptPercent = selection.codexVisible ? gptFeature.codexWeeklyPercent : nil
-        button.image = Self.dualUsageImage(claudePercent: claudePercent, gptPercent: gptPercent)
-        button.attributedTitle = usageMeterTitle(claudePercent: claudePercent, gptPercent: gptPercent)
-        let claudeText = selection.claudeVisible ? (claudePercent.map { "Claude session \($0)%" } ?? "Claude unavailable") : "Claude hidden"
-        let gptText = selection.codexVisible ? (gptPercent.map { "Codex weekly \($0)%" } ?? "Codex unavailable") : "Codex hidden"
+        let claudePercent = selection.claudeVisible
+            ? selection.claudePercent(from: appState.usage)
+            : nil
+        let gptPercent = selection.gptSourceIsVisible()
+            ? gptFeature.menuBarPercent(for: selection.gptMeterSourceID)
+            : nil
+        button.image = selection.menuBarIconVisible
+            ? Self.dualUsageImage(claudePercent: claudePercent, gptPercent: gptPercent)
+            : nil
+        button.attributedTitle = usageMeterTitle(
+            claudePercent: selection.claudePercentVisible ? claudePercent : nil,
+            gptPercent: selection.gptPercentVisible ? gptPercent : nil,
+            iconVisible: selection.menuBarIconVisible
+        )
+        let claudeText = selection.claudeVisible ? (claudePercent.map { "Claude \($0)%" } ?? "Claude unavailable") : "Claude hidden"
+        let gptText = selection.gptSourceIsVisible() ? (gptPercent.map { "GPT \($0)%" } ?? "GPT unavailable") : "GPT source hidden"
         button.toolTip = "Session Tracker · \(claudeText) · \(gptText)"
     }
 
-    private func usageMeterTitle(claudePercent: Int?, gptPercent: Int?) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: " ")
+    private func usageMeterTitle(claudePercent: Int?, gptPercent: Int?, iconVisible: Bool) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: iconVisible ? " " : "")
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         var needsSeparator = false
 
@@ -259,7 +284,17 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             }
             result.append(NSAttributedString(
                 string: "\(gptPercent)%",
-                attributes: [.font: font, .foregroundColor: Self.gptUsageColor(percent: gptPercent)]
+                attributes: [
+                    .font: font,
+                    .foregroundColor: NSColor(calibratedRed: 0.06, green: 0.58, blue: 0.40, alpha: 1)
+                ]
+            ))
+            needsSeparator = true
+        }
+        if !iconVisible && !needsSeparator && gptPercent == nil {
+            result.append(NSAttributedString(
+                string: "—",
+                attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
             ))
         }
         return result

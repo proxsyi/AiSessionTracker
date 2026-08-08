@@ -55,6 +55,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.arguments.contains("--show-menu-window-for-testing") {
             showMenuTestWindow()
         }
+        if ProcessInfo.processInfo.arguments.contains("--show-popover-for-testing") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.appState.requestTogglePopoverFromShortcut?()
+                self?.appState.completePopoverShortcutPress?()
+            }
+        }
     }
 
     /// Presents the exact menu content in a normal window so automated and
@@ -71,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Session Tracker Menu Preview"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
-        window.setContentSize(NSSize(width: 360, height: 680))
+        window.setContentSize(NSSize(width: 360, height: 540))
         window.center()
         menuTestWindow = window
         NSApp.activate(ignoringOtherApps: true)

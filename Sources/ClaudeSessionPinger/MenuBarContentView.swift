@@ -26,14 +26,14 @@ struct MenuBarContentView: View {
                 usageSection
                     .padding(14)
                     .glassPanel()
+                serviceStatusSection
+                    .padding(14)
+                    .glassPanel()
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
                     countdownSection
                         .padding(14)
                         .glassPanel()
                 }
-                serviceAndRefreshSection
-                    .padding(14)
-                    .glassPanel()
             }
             .claudeGlassContainer(spacing: 12)
             .environment(\.claudeClearGlass, settings.preferClearGlass)
@@ -49,14 +49,14 @@ struct MenuBarContentView: View {
                 usageSection
                     .padding(14)
                     .glassPanel()
+                serviceStatusSection
+                    .padding(14)
+                    .glassPanel()
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
                     countdownSection
                         .padding(14)
                         .glassPanel()
                 }
-                serviceAndRefreshSection
-                    .padding(14)
-                    .glassPanel()
                 actionsSection
             }
             .claudeGlassContainer(spacing: 12)
@@ -167,25 +167,26 @@ struct MenuBarContentView: View {
                     .foregroundColor(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
+            refreshRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var serviceAndRefreshSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            serviceStatusRow
-            HStack {
-                Text(lastUpdatedText)
-                    .font(.system(size: 10))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-                Spacer()
-                Button(appState.isRefreshingUsage ? "Refreshing\u{2026}" : "Refresh") {
-                    Task { await appState.refreshUsage() }
-                }
-                .claudeGhostButton()
-                .disabled(appState.isRefreshingUsage)
+    private var serviceStatusSection: some View {
+        serviceStatusRow
+    }
+
+    private var refreshRow: some View {
+        HStack {
+            Text(lastUpdatedText)
+                .font(.system(size: 10))
+                .foregroundColor(ClaudeTheme.textSecondary)
+            Spacer()
+            Button(appState.isRefreshingUsage ? "Refreshing\u{2026}" : "Refresh") {
+                Task { await appState.refreshUsage() }
             }
+            .claudeGhostButton()
+            .disabled(appState.isRefreshingUsage)
         }
     }
 
@@ -326,11 +327,7 @@ struct MenuBarContentView: View {
     }
 
     private var nextPossibleSessionDate: Date? {
-        if let reset = appState.usage?.sessionResetsAt,
-           reset > now {
-            return reset
-        }
-        return nil
+        appState.nextPossibleSessionDate(now: now)
     }
 
     private var effectiveCountdownFocus: CountdownFocus {
@@ -354,7 +351,8 @@ struct MenuBarContentView: View {
         let date = effectiveCountdownFocus == .nextPossible
             ? nextPossibleSessionDate
             : appState.nextFireDate
-        guard let date else { return "Unavailable" }
+        guard let date else { return "Now" }
+        if date.timeIntervalSince(now) <= 1 { return "Now" }
         return durationText(until: date)
     }
 

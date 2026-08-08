@@ -8,6 +8,16 @@ public enum GPTCombinedTab: String, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
 }
 
+public struct GPTMenuBarMeterOption: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+
+    public init(id: String, title: String) {
+        self.id = id
+        self.title = title
+    }
+}
+
 /// Owns the GPT side of the combined app while keeping its cookies, usage
 /// history, preferences, and alerts isolated from Claude.
 @MainActor
@@ -34,6 +44,24 @@ public final class GPTFeatureState: ObservableObject {
         guard let weekly = appState.usage?.weeklyTrack,
               settings.isUsageTrackVisible(weekly.preferenceID) else { return nil }
         return weekly.usedPercent
+    }
+
+    public var menuBarMeterOptions: [GPTMenuBarMeterOption] {
+        var options = [
+            GPTMenuBarMeterOption(id: "codex-weekly", title: "Codex weekly (7 day)"),
+            GPTMenuBarMeterOption(id: "codex-rolling-5h", title: "Codex rolling (5 hour)"),
+            GPTMenuBarMeterOption(id: "code-review-weekly", title: "Code Review weekly"),
+            GPTMenuBarMeterOption(id: "chatgpt-message-usage", title: "All ChatGPT messages")
+        ]
+        for track in appState.usage?.tracks ?? [] where track.usedPercent != nil {
+            let option = GPTMenuBarMeterOption(id: track.preferenceID, title: track.title)
+            if !options.contains(where: { $0.id == option.id }) { options.append(option) }
+        }
+        return options
+    }
+
+    public func menuBarPercent(for preferenceID: String) -> Int? {
+        appState.usage?.tracks.first(where: { $0.preferenceID == preferenceID })?.usedPercent
     }
 
     public var displayedPlan: String? {
