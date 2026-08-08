@@ -6,7 +6,11 @@ Three independent macOS menu-bar apps live in this repository:
 - **GPT Usage Tracker** shows the ChatGPT and Codex limits your account reports.
 - **Session Tracker** combines Claude, Codex, and ChatGPT into three switchable dashboards.
 
-The combined app keeps credentials and settings separated by service. Its menu-bar star shows Claude session usage; its ring shows Codex weekly usage. You can hide any dashboard from Settings, which also hides its meter.
+The combined app keeps credentials, settings, and alerts separated by service. Its menu-bar star and ring can follow the Claude and GPT counters you choose. The two optional percentages use Claude orange and GPT green, separated by `/` without letter labels. You can independently hide the icon, either percentage, any dashboard, counter, chart, or notification from Settings.
+
+Command-U opens the Claude dashboard. Command-I opens the GPT side (Codex or ChatGPT). One press toggles the popover, and clicking elsewhere closes it like a normal menu-bar item.
+
+All usage values and reset times come from the signed-in service. If ChatGPT does not report a message or feature limit for the account, the app labels it unavailable instead of estimating it.
 
 ## Local build
 
