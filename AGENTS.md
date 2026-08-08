@@ -1,10 +1,16 @@
-# Session Tracker contributor rules
+# AI Session Tracker contributor rules
 
 Follow the project Coding Rules in Notion before editing or releasing. Keep
 `main` deployable, work on a focused `feat/` or `fix/` branch, inspect the
 working tree and file history before changes, and make atomic conventional
 commits. Stage explicit paths only. Do not push unless the owner explicitly
 asks for a push.
+
+The GitHub repository is `proxsyi/AiSessionTracker`. Its deployable branches are:
+
+- `main` — mixed AI Session Tracker
+- `claude-session-pinger` — standalone Claude Session Pinger
+- `gpt-session-pinger` — standalone GPT Usage Tracker
 
 This repository ships three independent macOS apps:
 
@@ -19,3 +25,8 @@ profile for public releases; Apple Development signing is local testing only.
 Before shipping, verify each updater only accepts its own asset and bundle ID,
 and verify the Claude wake helper is isolated from the combined app before
 enabling wake support in both.
+
+Branch READMEs describe only the app built from that branch. GPT Usage Tracker
+must never include session-pinging, scheduling, wake support, a privileged
+helper, or Claude credentials. The mixed and Claude branches may include their
+own isolated Claude wake helpers.
