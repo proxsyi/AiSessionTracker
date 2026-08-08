@@ -206,12 +206,17 @@ struct SettingsView: View {
             switch selectedTab {
             case .general:
                 accountSection.padding(14).glassPanel()
+                displaySection.padding(14).glassPanel()
                 pingSection.padding(14).glassPanel()
                 activitySection.padding(14).glassPanel()
             case .usage:
-                usageBarsSection.padding(14).glassPanel()
+                trackedUsageSection.padding(14).glassPanel()
+                sessionDisplaySection.padding(14).glassPanel()
+                usageBehaviorSection.padding(14).glassPanel()
             case .alerts:
-                notificationsSection.padding(14).glassPanel()
+                usageAlertsSection.padding(14).glassPanel()
+                pingAlertsSection.padding(14).glassPanel()
+                serviceAlertsSection.padding(14).glassPanel()
             case .app:
                 appSection.padding(14).glassPanel()
                 if showsUpdateControls {
@@ -292,6 +297,15 @@ struct SettingsView: View {
             }
 
             keysDisclosure
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var displaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Menu display")
+            serviceVisibilityRow
+            caption("Dashboard visibility, individual usage counters, countdowns, and the combined menu-bar meter are configured independently.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -496,16 +510,20 @@ struct SettingsView: View {
         return "\(stats.successCount)/\(stats.totalCount) (\(Int(stats.successRate * 100))%)"
     }
 
-    private var usageBarsSection: some View {
+    private var trackedUsageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Usage bars")
-            serviceVisibilityRow
+            SectionHeader(text: "Tracked usage")
+            caption("Choose the Claude counters that appear in the dashboard. Each counter keeps its own reset window and alerts.")
             toggleRow("Session (5 hour)", isOn: $showSessionBar)
             toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
             toggleRow("Fable 5 weekly", isOn: $showFable5Bar)
-            caption("Choose which usage windows appear in the menu bar popover.")
-            Divider()
-            SectionHeader(text: "Countdown card")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sessionDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Session display")
             toggleRow("Next possible session", isOn: $showNextPossibleCountdown)
             toggleRow("Scheduled session", isOn: $showScheduledCountdown)
             if showNextPossibleCountdown && showScheduledCountdown {
@@ -523,34 +541,52 @@ struct SettingsView: View {
                     caption("The other enabled countdown appears underneath in gray.")
                 }
             }
-            Divider()
             toggleRow("Start sessions when available", isOn: $autoStartAvailableSessions)
             caption("Off by default. Starts an available session immediately unless the next scheduled start is within five hours. A successful manual or automatic ping prevents another start for five hours.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var notificationsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Notifications")
+    private var usageBehaviorSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            SectionHeader(text: "Tracking behavior")
+            Text("The tracker displays exactly what Claude reports and keeps the 5-hour, weekly, and Fable windows separate.")
+                .font(.system(size: 11))
+                .foregroundColor(ClaudeTheme.textPrimary)
+            caption("Next-possible session timing is calculated from the active 5-hour reset and the last successful app ping; scheduled timing follows your saved schedule.")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
+    private var usageAlertsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Usage alerts")
+            caption("Turn on exactly the Claude usage windows you want notifications for. The first refresh after launch is only a baseline.")
+            toggleRow("Session (5 hour)", isOn: thresholdEnabledBinding(selection: $sessionThresholds, defaults: SettingsStore.defaultSessionThresholds))
+            thresholdButtons(selection: $sessionThresholds)
+                .disabled(sessionThresholds.isEmpty)
+            toggleRow("Weekly (7 day)", isOn: thresholdEnabledBinding(selection: $weeklyThresholds, defaults: SettingsStore.defaultWeeklyThresholds))
+            thresholdButtons(selection: $weeklyThresholds)
+                .disabled(weeklyThresholds.isEmpty)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var pingAlertsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Ping alerts")
             toggleRow("Ping failures", isOn: $notifyOnFailure)
-            toggleRow("Claude services down", isOn: $notifyOnServiceOutage)
-            toggleRow("Claude performing poorly", isOn: $notifyOnServiceDegraded)
             toggleRow("New session available", isOn: $notifySessionAvailable)
             toggleRow("Session started by app", isOn: $notifySessionStarted)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-            thresholdPicker(
-                title: "Session usage alerts",
-                subtitle: "Notify when the 5-hour window reaches:",
-                selection: $sessionThresholds
-            )
-            thresholdPicker(
-                title: "Weekly usage alerts",
-                subtitle: "Notify when the 7-day window reaches:",
-                selection: $weeklyThresholds
-            )
-
+    private var serviceAlertsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Service alerts")
+            toggleRow("Claude service outages", isOn: $notifyOnServiceOutage)
+            toggleRow("Claude degraded performance", isOn: $notifyOnServiceDegraded)
             Button("Send test notification") {
                 appState.sendTestNotification()
             }
@@ -562,18 +598,21 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func thresholdPicker(title: String, subtitle: String, selection: Binding<Set<Int>>) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(ClaudeTheme.textPrimary)
-            caption(subtitle)
-            HStack(spacing: 6) {
-                ForEach(SettingsStore.availableThresholds, id: \.self) { threshold in
-                    thresholdPill(threshold: threshold, selection: selection)
-                }
+    private func thresholdButtons(selection: Binding<Set<Int>>) -> some View {
+        HStack(spacing: 6) {
+            ForEach(SettingsStore.availableThresholds, id: \.self) { threshold in
+                thresholdPill(threshold: threshold, selection: selection)
             }
         }
+    }
+
+    private func thresholdEnabledBinding(selection: Binding<Set<Int>>, defaults: [Int]) -> Binding<Bool> {
+        Binding(
+            get: { !selection.wrappedValue.isEmpty },
+            set: { enabled in
+                selection.wrappedValue = enabled ? Set(defaults) : []
+            }
+        )
     }
 
     private func thresholdPill(threshold: Int, selection: Binding<Set<Int>>) -> some View {

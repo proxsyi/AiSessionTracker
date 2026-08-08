@@ -13,16 +13,52 @@ enum KeychainError: LocalizedError {
 }
 
 enum KeychainStore {
-    private static let service = "com.proxsyi.gptsessionpinger"
-    private static let legacyServices: [String] = []
-    private static let account = "sessionKey"
-
-    static func save(_ value: String, account: String = KeychainStore.account) throws {
-        try save(value, account: account, service: service)
+    struct WebSession: Codable, Equatable {
+        var sessionKey: String
+        var cookieHeader: String
     }
 
-    private static func save(_ value: String, account: String, service: String) throws {
-        let data = Data(value.utf8)
+    private static let service = "com.proxsyi.gptsessionpinger"
+    private static let account = "webSession"
+    private static let legacyAccounts = ["sessionKey", "cookieHeader"]
+
+    static func save(sessionKey: String, cookieHeader: String) throws {
+        if sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            delete()
+            return
+        }
+        let session = WebSession(sessionKey: sessionKey, cookieHeader: cookieHeader)
+        let data = try JSONEncoder().encode(session)
+        try save(data, account: account)
+    }
+
+    static func load() -> WebSession? {
+        if let data = loadData(account: account),
+           let session = try? JSONDecoder().decode(WebSession.self, from: data) {
+            deleteLegacyItems()
+            return session
+        }
+
+        let sessionKey = loadString(account: "sessionKey") ?? ""
+        let cookieHeader = loadString(account: "cookieHeader") ?? ""
+        guard !sessionKey.isEmpty || !cookieHeader.isEmpty else { return nil }
+        let session = WebSession(sessionKey: sessionKey, cookieHeader: cookieHeader)
+        do {
+            try save(sessionKey: sessionKey, cookieHeader: cookieHeader)
+            deleteLegacyItems()
+        } catch {
+            return session
+        }
+        return session
+    }
+
+    static func delete() {
+        delete(account: account)
+        deleteLegacyItems()
+    }
+
+    private static func save(_ data: Data, account: String) throws {
         let baseQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -46,24 +82,7 @@ enum KeychainStore {
         }
     }
 
-    static func load(account: String = KeychainStore.account) -> String? {
-        if let value = load(account: account, service: service) {
-            return value
-        }
-        for legacyService in legacyServices {
-            guard let value = load(account: account, service: legacyService) else { continue }
-            do {
-                try save(value, account: account, service: service)
-                delete(account: account, service: legacyService)
-            } catch {
-                return value
-            }
-            return value
-        }
-        return nil
-    }
-
-    private static func load(account: String, service: String) -> String? {
+    private static func loadData(account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -73,17 +92,20 @@ enum KeychainStore {
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else {
-            return nil
-        }
+        guard status == errSecSuccess else { return nil }
+        return item as? Data
+    }
+
+    private static func loadString(account: String) -> String? {
+        guard let data = loadData(account: account) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
-    static func delete(account: String = KeychainStore.account) {
-        delete(account: account, service: service)
+    private static func deleteLegacyItems() {
+        for legacyAccount in legacyAccounts { delete(account: legacyAccount) }
     }
 
-    private static func delete(account: String, service: String) {
+    private static func delete(account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

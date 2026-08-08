@@ -56,11 +56,9 @@ final class SettingsStore: ObservableObject {
         static let sessionUsageThresholds = "sessionUsageThresholds"
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
         static let autoUpdateEnabled = "autoUpdateEnabled"
-        static let keychainOwnershipMigrationVersion = "keychainOwnershipMigrationVersion"
         static let proxsyiDefaultsMigrated = "proxsyiDefaultsMigrated"
     }
 
-    private static let currentKeychainOwnershipMigrationVersion = 2
     private static let legacyBundleIdentifier = "com.cash.claudesessionpinger"
 
     @Published var organizationID: String {
@@ -155,24 +153,12 @@ final class SettingsStore: ObservableObject {
         didSet { Self.serviceDefaults.set(autoUpdateEnabled, forKey: Keys.autoUpdateEnabled) }
     }
     @Published var sessionKey: String {
-        didSet {
-            if sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                KeychainStore.delete()
-            } else {
-                try? KeychainStore.save(sessionKey)
-            }
-        }
+        didSet { persistWebSession() }
     }
     /// The full Cookie header captured by the built-in login (every claude.ai
     /// cookie, not just sessionKey), stored in the keychain alongside the key.
     @Published var cookieHeader: String {
-        didSet {
-            if cookieHeader.isEmpty {
-                KeychainStore.delete(account: "cookieHeader")
-            } else {
-                try? KeychainStore.save(cookieHeader, account: "cookieHeader")
-            }
-        }
+        didSet { persistWebSession() }
     }
 
     init() {
@@ -211,21 +197,10 @@ final class SettingsStore: ObservableObject {
         } else {
             weeklyUsageThresholds = SettingsStore.defaultWeeklyThresholds
         }
-        let storedSessionKey = KeychainStore.load() ?? ""
-        let storedCookieHeader = KeychainStore.load(account: "cookieHeader") ?? ""
-        sessionKey = storedSessionKey
-        cookieHeader = storedCookieHeader
-        // Re-create legacy keychain items under the current stable signing
-        // identity. Versioning this migration lets an older, incomplete
-        // migration be repaired once without repeating it every launch.
-        if defaults.integer(forKey: Keys.keychainOwnershipMigrationVersion) < Self.currentKeychainOwnershipMigrationVersion,
-           !storedSessionKey.isEmpty {
-            try? KeychainStore.save(storedSessionKey)
-            if !storedCookieHeader.isEmpty {
-                try? KeychainStore.save(storedCookieHeader, account: "cookieHeader")
-            }
-            defaults.set(Self.currentKeychainOwnershipMigrationVersion, forKey: Keys.keychainOwnershipMigrationVersion)
-        }
+        let storedWebSession = KeychainStore.load()
+        sessionKey = storedWebSession?.sessionKey ?? ""
+        cookieHeader = storedWebSession?.cookieHeader ?? ""
+        defaults.removeObject(forKey: "keychainOwnershipMigrationVersion")
         autoUpdateEnabled = defaults.object(forKey: Keys.autoUpdateEnabled) == nil ? true : defaults.bool(forKey: Keys.autoUpdateEnabled)
         if let data = defaults.data(forKey: Keys.scheduleSlots),
            let decoded = try? JSONDecoder().decode([ScheduleSlot].self, from: data),
@@ -234,6 +209,10 @@ final class SettingsStore: ObservableObject {
         } else {
             scheduleSlots = SettingsStore.defaultSlots
         }
+    }
+
+    private func persistWebSession() {
+        try? KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
     }
 
     private static func migrateLegacyDefaultsIfNeeded(into defaults: UserDefaults) {

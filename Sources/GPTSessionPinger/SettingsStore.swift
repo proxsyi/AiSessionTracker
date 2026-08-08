@@ -25,18 +25,17 @@ final class SettingsStore: ObservableObject {
         static let alertEnabledUsageTrackIDs = "trackerAlertEnabledUsageTrackIDs"
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
         static let additionalUsageAlertThreshold = "trackerAdditionalUsageAlertThreshold"
+        static let additionalUsageAlertsEnabled = "trackerAdditionalUsageAlertsEnabled"
         static let enableCommandIShortcut = "enableCommandIShortcut"
         static let preferClearGlass = "preferClearGlass"
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnServiceOutage = "notifyOnServiceOutage"
         static let notifyOnServiceDegraded = "notifyOnServiceDegraded"
         static let autoUpdateEnabled = "autoUpdateEnabled"
-        static let keychainOwnershipMigrationVersion = "keychainOwnershipMigrationVersion"
         static let trackerMigrationVersion = "trackerMigrationVersion"
     }
 
-    private static let currentKeychainOwnershipMigrationVersion = 2
-    private static let currentTrackerMigrationVersion = 1
+    private static let currentTrackerMigrationVersion = 2
 
     @Published var organizationID: String {
         didSet { Self.serviceDefaults.set(organizationID, forKey: Keys.organizationID) }
@@ -68,6 +67,9 @@ final class SettingsStore: ObservableObject {
     @Published var additionalUsageAlertThreshold: Int {
         didSet { Self.serviceDefaults.set(additionalUsageAlertThreshold, forKey: Keys.additionalUsageAlertThreshold) }
     }
+    @Published var additionalUsageAlertsEnabled: Bool {
+        didSet { Self.serviceDefaults.set(additionalUsageAlertsEnabled, forKey: Keys.additionalUsageAlertsEnabled) }
+    }
     @Published var enableCommandIShortcut: Bool {
         didSet {
             Self.serviceDefaults.set(enableCommandIShortcut, forKey: Keys.enableCommandIShortcut)
@@ -90,31 +92,19 @@ final class SettingsStore: ObservableObject {
         didSet { Self.serviceDefaults.set(autoUpdateEnabled, forKey: Keys.autoUpdateEnabled) }
     }
     @Published var sessionKey: String {
-        didSet {
-            if sessionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                KeychainStore.delete()
-            } else {
-                try? KeychainStore.save(sessionKey)
-            }
-        }
+        didSet { persistWebSession() }
     }
     @Published var cookieHeader: String {
-        didSet {
-            if cookieHeader.isEmpty {
-                KeychainStore.delete(account: "cookieHeader")
-            } else {
-                try? KeychainStore.save(cookieHeader, account: "cookieHeader")
-            }
-        }
+        didSet { persistWebSession() }
     }
 
     init() {
         let defaults = Self.serviceDefaults
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
-        let storedSessionKey = KeychainStore.load() ?? ""
-        let storedCookieHeader = KeychainStore.load(account: "cookieHeader") ?? ""
+        let storedWebSession = KeychainStore.load()
+        let storedSessionKey = storedWebSession?.sessionKey ?? ""
         sessionKey = storedSessionKey
-        cookieHeader = storedCookieHeader
+        cookieHeader = storedWebSession?.cookieHeader ?? ""
         accountPlanType = defaults.string(forKey: Keys.accountPlanType) ?? ChatGPTWebSession.planType(from: storedSessionKey) ?? ""
         showCategoryTabs = defaults.object(forKey: Keys.showCategoryTabs) == nil ? true : defaults.bool(forKey: Keys.showCategoryTabs)
         showHistoryChart = defaults.object(forKey: Keys.showHistoryChart) == nil ? true : defaults.bool(forKey: Keys.showHistoryChart)
@@ -127,6 +117,9 @@ final class SettingsStore: ObservableObject {
         weeklyUsageThresholds = storedWeekly.isEmpty ? Self.defaultWeeklyThresholds : storedWeekly
         let storedAdditionalThreshold = defaults.integer(forKey: Keys.additionalUsageAlertThreshold)
         additionalUsageAlertThreshold = Self.availableThresholds.contains(storedAdditionalThreshold) ? storedAdditionalThreshold : 90
+        additionalUsageAlertsEnabled = defaults.object(forKey: Keys.additionalUsageAlertsEnabled) == nil
+            ? storedAlertIDs.contains(where: { $0 != "codex-weekly" })
+            : defaults.bool(forKey: Keys.additionalUsageAlertsEnabled)
         enableCommandIShortcut = defaults.object(forKey: Keys.enableCommandIShortcut) == nil ? true : defaults.bool(forKey: Keys.enableCommandIShortcut)
         preferClearGlass = defaults.object(forKey: Keys.preferClearGlass) == nil ? true : defaults.bool(forKey: Keys.preferClearGlass)
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
@@ -134,7 +127,7 @@ final class SettingsStore: ObservableObject {
         notifyOnServiceDegraded = defaults.object(forKey: Keys.notifyOnServiceDegraded) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceDegraded)
         autoUpdateEnabled = defaults.object(forKey: Keys.autoUpdateEnabled) == nil ? true : defaults.bool(forKey: Keys.autoUpdateEnabled)
 
-        migrateKeychainOwnershipIfNeeded(defaults: defaults, storedSessionKey: storedSessionKey, storedCookieHeader: storedCookieHeader)
+        defaults.removeObject(forKey: "keychainOwnershipMigrationVersion")
         removeLegacySessionPreferencesIfNeeded(defaults: defaults)
     }
 
@@ -175,7 +168,8 @@ final class SettingsStore: ObservableObject {
     }
 
     func isAlertEnabled(for id: String) -> Bool {
-        alertEnabledUsageTrackIDs.contains(id)
+        if id != "codex-weekly" && !additionalUsageAlertsEnabled { return false }
+        return alertEnabledUsageTrackIDs.contains(id)
     }
 
     func setAlertEnabled(_ enabled: Bool, for id: String) {
@@ -193,16 +187,6 @@ final class SettingsStore: ObservableObject {
         accountPlanType = ""
     }
 
-    private func migrateKeychainOwnershipIfNeeded(defaults: UserDefaults, storedSessionKey: String, storedCookieHeader: String) {
-        guard defaults.integer(forKey: Keys.keychainOwnershipMigrationVersion) < Self.currentKeychainOwnershipMigrationVersion,
-              !storedSessionKey.isEmpty else { return }
-        try? KeychainStore.save(storedSessionKey)
-        if !storedCookieHeader.isEmpty {
-            try? KeychainStore.save(storedCookieHeader, account: "cookieHeader")
-        }
-        defaults.set(Self.currentKeychainOwnershipMigrationVersion, forKey: Keys.keychainOwnershipMigrationVersion)
-    }
-
     private func removeLegacySessionPreferencesIfNeeded(defaults: UserDefaults) {
         guard defaults.integer(forKey: Keys.trackerMigrationVersion) < Self.currentTrackerMigrationVersion else { return }
         [
@@ -211,7 +195,18 @@ final class SettingsStore: ObservableObject {
             "showNextPossibleCountdown", "showScheduledCountdown", "countdownFocus", "enableScheduledWake",
             "scheduleSlots", "notifyOnFailure", "sessionUsageThresholds"
         ].forEach(defaults.removeObject(forKey:))
+        let obsoletePlaceholders = Set([
+            "codex-rolling-5h", "code-review-weekly", "code-review-rolling-5h",
+            "chatgpt-message-usage", "chatgpt-model-limits"
+        ])
+        knownUsageTrackIDs.subtract(obsoletePlaceholders)
+        hiddenUsageTrackIDs.subtract(obsoletePlaceholders)
+        alertEnabledUsageTrackIDs.subtract(obsoletePlaceholders)
         defaults.set(Self.currentTrackerMigrationVersion, forKey: Keys.trackerMigrationVersion)
+    }
+
+    private func persistWebSession() {
+        try? KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
     }
 
     private static func loadSet(key: String) -> Set<String> {

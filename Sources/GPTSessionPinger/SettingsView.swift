@@ -43,6 +43,7 @@ struct SettingsView: View {
     @State private var alertTrackIDs: Set<String> = []
     @State private var weeklyThresholds: Set<Int> = []
     @State private var additionalAlertThreshold = 90
+    @State private var additionalUsageAlertsEnabled = false
     @State private var enableCommandIShortcut = true
     @State private var preferClearGlass = true
     @State private var launchAtLogin = false
@@ -278,13 +279,16 @@ struct SettingsView: View {
             }
             let otherRows = scopedUsageRows.filter { $0.id != "codex-weekly" }
             if !otherRows.isEmpty {
-                Picker("Other counter threshold", selection: $additionalAlertThreshold) {
-                    ForEach(SettingsStore.availableThresholds, id: \.self) { Text("\($0)%").tag($0) }
+                toggleRow("Other counter alerts", isOn: $additionalUsageAlertsEnabled)
+                if additionalUsageAlertsEnabled {
+                    Picker("Other counter threshold", selection: $additionalAlertThreshold) {
+                        ForEach(SettingsStore.availableThresholds, id: \.self) { Text("\($0)%").tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    ForEach(otherRows) { row in toggleRow(row.title, isOn: alertBinding(for: row.id)) }
+                    Text("Percentage counters notify at the selected threshold. Remaining-use counters notify once when ChatGPT reports them unavailable.")
+                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
                 }
-                .pickerStyle(.menu)
-                ForEach(otherRows) { row in toggleRow(row.title, isOn: alertBinding(for: row.id)) }
-                Text("Percentage counters notify at the selected threshold. Remaining-use counters notify once when ChatGPT reports them unavailable.")
-                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             } else if scopedUsageRows.isEmpty {
                 Text("No alertable usage counters are currently reported for this section.")
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
@@ -433,9 +437,12 @@ struct SettingsView: View {
                     if selection.wrappedValue.contains(value) { selection.wrappedValue.remove(value) }
                     else { selection.wrappedValue.insert(value) }
                 }
-                .buttonStyle(.bordered)
-                .tint(selection.wrappedValue.contains(value) ? GPTTheme.accent : .gray)
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .foregroundColor(selection.wrappedValue.contains(value) ? .white : GPTTheme.textSecondary)
+                .gptGlassChoice(isSelected: selection.wrappedValue.contains(value))
             }
         }
     }
@@ -487,6 +494,7 @@ struct SettingsView: View {
         alertTrackIDs = settings.alertEnabledUsageTrackIDs
         weeklyThresholds = Set(settings.weeklyUsageThresholds)
         additionalAlertThreshold = settings.additionalUsageAlertThreshold
+        additionalUsageAlertsEnabled = settings.additionalUsageAlertsEnabled
         enableCommandIShortcut = settings.enableCommandIShortcut
         preferClearGlass = settings.preferClearGlass
         launchAtLogin = settings.launchAtLogin
@@ -505,6 +513,7 @@ struct SettingsView: View {
         }
         settings.weeklyUsageThresholds = weeklyThresholds.sorted()
         settings.additionalUsageAlertThreshold = additionalAlertThreshold
+        settings.additionalUsageAlertsEnabled = additionalUsageAlertsEnabled
         settings.enableCommandIShortcut = enableCommandIShortcut
         settings.preferClearGlass = preferClearGlass
         settings.launchAtLogin = launchAtLogin
