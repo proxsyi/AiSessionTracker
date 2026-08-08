@@ -143,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// every button can be exercised end to end. It is unreachable unless a
     /// developer explicitly sets the testing preference or launch argument.
     private func showMenuTestWindow() {
+        NSApp.setActivationPolicy(.regular)
         if let menuTestWindow {
             menuTestWindow.makeKeyAndOrderFront(nil)
             return
