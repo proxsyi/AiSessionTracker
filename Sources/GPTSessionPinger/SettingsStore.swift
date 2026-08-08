@@ -17,6 +17,7 @@ struct KnownUsageTrack: Identifiable, Equatable {
         KnownUsageTrack(id: "code-review-rolling-5h", title: "Code Review rolling five-hour usage", scope: .codex, detail: "Short review window when reported"),
         KnownUsageTrack(id: "codex-credits", title: "Purchased credits", scope: .codex, detail: "Shared agentic credit balance"),
         KnownUsageTrack(id: "workspace-spend-control", title: "Workspace spend control", scope: .workspace, detail: "Workspace limit or overage state"),
+        KnownUsageTrack(id: "chatgpt-message-usage", title: "ChatGPT message usage", scope: .chatGPTModel, detail: "Account-wide message allowance when reported"),
         KnownUsageTrack(id: "chatgpt-model-limits", title: "ChatGPT model limits", scope: .chatGPTModel, detail: "Every model-specific rolling window reported by ChatGPT"),
         KnownUsageTrack(id: "feature-deep-research", title: "Deep research", scope: .chatGPTFeature, detail: "Remaining research tasks"),
         KnownUsageTrack(id: "feature-image-generation", title: "Image generation", scope: .chatGPTFeature, detail: "Remaining image generations"),

@@ -172,4 +172,42 @@ final class UsageCheckerTests: XCTestCase {
         XCTAssertEqual(tracks.first(where: { $0.scope == .chatGPTFeature })?.usedPercent, 40)
     }
 
+    func testGlobalChatGPTMessageUsageUsesServerValues() throws {
+        let object: [String: Any] = [
+            "message_usage": [
+                "remaining_messages": 30,
+                "message_limit": 120,
+                "reset_at": 2_000_000_000
+            ]
+        ]
+
+        let track = try XCTUnwrap(
+            UsageChecker.parseChatGPTTracks(object)
+                .first(where: { $0.id == "chatgpt-message-usage" })
+        )
+
+        XCTAssertEqual(track.title, "All ChatGPT messages")
+        XCTAssertEqual(track.usedPercent, 75)
+        XCTAssertEqual(track.remaining, 30)
+        XCTAssertEqual(track.limit, 120)
+        XCTAssertEqual(track.resetsAt, Date(timeIntervalSince1970: 2_000_000_000))
+    }
+
+    func testGlobalMessageBarIsNotInventedWithoutServerCounter() {
+        let tracks = UsageChecker.parseChatGPTTracks([
+            "conversation_id": "abc",
+            "model": "gpt-5"
+        ])
+
+        XCTAssertFalse(tracks.contains(where: { $0.id == "chatgpt-message-usage" }))
+    }
+
+    func testGlobalMessageLimitAloneDoesNotPretendToBeUsage() {
+        let tracks = UsageChecker.parseChatGPTTracks([
+            "message_limit": 120
+        ])
+
+        XCTAssertFalse(tracks.contains(where: { $0.id == "chatgpt-message-usage" }))
+    }
+
 }

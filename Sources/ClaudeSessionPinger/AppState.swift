@@ -100,6 +100,20 @@ final class AppState: ObservableObject {
         synchronizeWakeSchedule()
     }
 
+    func nextPossibleSessionDate(now: Date = Date()) -> Date {
+        if let reset = usage?.sessionResetsAt, reset > now { return reset }
+        if let percent = usage?.sessionPercent, percent < 100 { return now }
+
+        let latestSuccessfulPing = stats.records.last(where: { $0.success })?.date
+        if let lastStart = [lastPingDate, latestSuccessfulPing].compactMap({ $0 }).max() {
+            return max(now, lastStart.addingTimeInterval(scheduledStartProtectionWindow))
+        }
+
+        // A missing reset must not make the card unusable. With no evidence
+        // of a closed window, the next valid opportunity is the present.
+        return now
+    }
+
     @objc private func handleWake() {
         WakeSupport.appendDiagnostic("didWake received; idleSeconds=\(Int(WakeSupport.userIdleSeconds))")
         let completedWakeTest = WakeSupport.consumeSuccessfulTestWake()

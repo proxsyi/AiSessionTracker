@@ -296,6 +296,10 @@ enum UsageChecker {
             ))
         }
 
+        if let messageTrack = parseGlobalMessageTrack(object) {
+            tracks.append(messageTrack)
+        }
+
         for (dictionaryKey, limitObject) in dictionaryEntries(object["model_limits"]) {
             guard let slug = string(limitObject["model_slug"] ?? limitObject["slug"] ?? limitObject["model"])
                 ?? dictionaryKey else { continue }
@@ -317,6 +321,43 @@ enum UsageChecker {
             ))
         }
         return tracks
+    }
+
+    /// Some ChatGPT plans expose one account-wide message allowance rather
+    /// than model-specific rows. Only display it when the server supplies an
+    /// explicit percentage or enough remaining/limit values to calculate one.
+    private static func parseGlobalMessageTrack(_ object: [String: Any]) -> GPTUsageTrack? {
+        let nestedKeys = ["message_usage", "messages_usage", "message_limit", "message_limits"]
+        var candidates = nestedKeys.compactMap { object[$0] as? [String: Any] }
+        let hasRootMessageValues = [
+            "messages_remaining", "remaining_messages", "message_limit",
+            "max_messages", "message_usage_percent"
+        ].contains { object[$0] != nil }
+        if hasRootMessageValues { candidates.append(object) }
+
+        for value in candidates {
+            let remaining = integer(value["remaining"] ?? value["remaining_messages"] ?? value["messages_remaining"])
+            let total = integer(value["limit"] ?? value["message_limit"] ?? value["max_messages"] ?? value["total"])
+            let explicit = numeric(value["message_usage_percent"] ?? value["used_percent"] ?? value["usage_percentage"] ?? value["percent"])
+            let percent = explicit.map(clampedPercent)
+                ?? usedPercent(remaining: remaining, limit: total, explicit: value)
+            guard percent != nil || remaining != nil else { continue }
+            return GPTUsageTrack(
+                id: "chatgpt-message-usage",
+                scope: .chatGPTModel,
+                title: "All ChatGPT messages",
+                usedPercent: percent,
+                remaining: remaining,
+                limit: total,
+                resetsAt: resetDate(value),
+                windowSeconds: integer(value["limit_window_seconds"] ?? value["window_seconds"]),
+                isBlocked: (value["blocked"] as? Bool) == true
+                    || (value["limit_reached"] as? Bool) == true
+                    || remaining == 0,
+                modelSlug: nil
+            )
+        }
+        return nil
     }
 
     /// ChatGPT has shipped both array-shaped and slug-keyed limit payloads.
@@ -350,7 +391,9 @@ enum UsageChecker {
     }
 
     private static func date(_ value: Any?) -> Date? {
-        if let epoch = value as? TimeInterval { return Date(timeIntervalSince1970: epoch > 10_000_000_000 ? epoch / 1000 : epoch) }
+        if let epoch = numeric(value) {
+            return Date(timeIntervalSince1970: epoch > 10_000_000_000 ? epoch / 1000 : epoch)
+        }
         if let text = value as? String {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

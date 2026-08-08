@@ -3,6 +3,7 @@ import Foundation
 /// A snapshot of claude.ai plan usage, mirroring what claude.ai/settings/usage
 /// shows: the rolling 5-hour session window and the 7-day weekly window.
 struct ClaudeUsage: Equatable {
+    var planType: String?
     var sessionPercent: Int?
     var sessionResetsAt: Date?
     var weeklyPercent: Int?
@@ -113,7 +114,16 @@ enum UsageChecker {
             throw UsageError.unexpectedResponse
         }
         let fableUsesSharedWeekly = fable5 == nil && weekly != nil
+        var planType = accountPlan(in: object)
+        if planType == nil {
+            planType = await fetchAccountPlan(
+                sessionKey: trimmedKey,
+                organizationID: trimmedOrg,
+                cookieHeader: cookieHeader
+            )
+        }
         return ClaudeUsage(
+            planType: planType,
             sessionPercent: session?.percent,
             sessionResetsAt: session?.resetsAt,
             weeklyPercent: weekly?.percent,
@@ -123,6 +133,56 @@ enum UsageChecker {
             fable5UsesSharedWeekly: fableUsesSharedWeekly,
             fetchedAt: Date()
         )
+    }
+
+    private static func fetchAccountPlan(
+        sessionKey: String,
+        organizationID: String,
+        cookieHeader: String?
+    ) async -> String? {
+        guard let url = URL(string: "https://claude.ai/api/organizations/\(organizationID)") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
+        request.setValue("https://claude.ai/settings/usage", forHTTPHeaderField: "Referer")
+        request.setValue((cookieHeader?.isEmpty == false) ? cookieHeader! : "sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return accountPlan(in: object)
+    }
+
+    static func accountPlan(in object: [String: Any]) -> String? {
+        let preferredKeys = [
+            "plan_type", "plan", "subscription_type", "subscription_tier",
+            "billing_plan", "account_tier"
+        ]
+        for key in preferredKeys {
+            if let value = nonemptyString(object[key]), isUsefulPlan(value) { return value }
+        }
+        for value in object.values {
+            if let nested = value as? [String: Any], let plan = accountPlan(in: nested) { return plan }
+            if let array = value as? [[String: Any]] {
+                for nested in array {
+                    if let plan = accountPlan(in: nested) { return plan }
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func nonemptyString(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func isUsefulPlan(_ value: String) -> Bool {
+        let normalized = value.lowercased()
+        return !normalized.hasPrefix("default")
+            && !["unknown", "none"].contains(normalized)
     }
 
     /// Never throws -- service status is informational and must not break the
