@@ -5,7 +5,7 @@ set -euo pipefail
 # installed copies can find and install it via Settings > Check for updates.
 # Requires the `gh` CLI, authenticated with access to this repo.
 #
-# Usage: ./Scripts/release.sh
+# Usage: NOTARY_PROFILE="your-notary-profile" ./Scripts/release.sh
 # Bump the version in Resources/Info.plist and add a CHANGELOG.md entry
 # for it before running this.
 
@@ -17,9 +17,19 @@ TAG="gpt-v${VERSION}"
 
 echo "Releasing ${TAG}..."
 
-./Scripts/build_app.sh
+if [[ -z "${NOTARY_PROFILE:-}" ]]; then
+    echo "ERROR: set NOTARY_PROFILE to a stored notarytool keychain profile." >&2
+    exit 1
+fi
+
+DISTRIBUTION=1 ./Scripts/build_app.sh
 
 ASSET_NAME="GPTSessionPinger.app.zip"
+rm -f "dist/${ASSET_NAME}"
+ditto -c -k --sequesterRsrc --keepParent "dist/GPT Usage Tracker.app" "dist/${ASSET_NAME}"
+xcrun notarytool submit "dist/${ASSET_NAME}" --keychain-profile "${NOTARY_PROFILE}" --wait
+xcrun stapler staple "dist/GPT Usage Tracker.app"
+spctl --assess --type execute --verbose=4 "dist/GPT Usage Tracker.app"
 rm -f "dist/${ASSET_NAME}"
 ditto -c -k --sequesterRsrc --keepParent "dist/GPT Usage Tracker.app" "dist/${ASSET_NAME}"
 
