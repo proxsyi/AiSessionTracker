@@ -5,11 +5,20 @@ extension Notification.Name {
 }
 
 final class SettingsStore: ObservableObject {
+    private static let serviceDomain = "com.proxsyi.gptsessionpinger"
+
     /// Reuse the standalone GPT app's preference domain when this feature
     /// runs inside the combined tracker, without colliding with Claude settings.
-    private static let serviceDefaults = UserDefaults(
-        suiteName: "com.proxsyi.gptsessionpinger"
-    )!
+    private static let serviceDefaults: UserDefaults = {
+        guard let suiteName = defaultsSuiteName(for: Bundle.main.bundleIdentifier) else {
+            return .standard
+        }
+        return UserDefaults(suiteName: suiteName) ?? .standard
+    }()
+
+    static func defaultsSuiteName(for bundleIdentifier: String?) -> String? {
+        bundleIdentifier == serviceDomain ? nil : serviceDomain
+    }
 
     static let availableThresholds = [25, 50, 75, 90, 95, 100]
     static let defaultWeeklyThresholds = [75, 90]
