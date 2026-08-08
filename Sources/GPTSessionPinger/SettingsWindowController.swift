@@ -74,6 +74,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         newWindow.backgroundColor = .clear
         newWindow.minSize = NSSize(width: 380, height: 420)
         newWindow.isReleasedWhenClosed = false
+        Self.configureWindowPresence(newWindow)
         newWindow.delegate = self
         newWindow.center()
         window = newWindow
@@ -84,5 +85,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window = nil
+    }
+
+    /// A menu-bar-only app does not own the system menu bar. Keep Settings at
+    /// utility-window level so revealing that menu bar cannot place the
+    /// previously active app's normal windows above it.
+    static func configureWindowPresence(_ window: NSWindow) {
+        window.level = .floating
+        window.hidesOnDeactivate = false
+        window.collectionBehavior.formUnion([
+            .auxiliary,
+            .moveToActiveSpace,
+            .fullScreenAuxiliary,
+            .fullScreenDisallowsTiling
+        ])
     }
 }
