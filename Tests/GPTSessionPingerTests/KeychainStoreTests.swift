@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import GPTTrackerFeature
+@testable import GPTUsageTracker
 
 final class GPTKeychainStoreTests: XCTestCase {
     func testWebSessionRecordRoundTripsBothCredentialParts() throws {

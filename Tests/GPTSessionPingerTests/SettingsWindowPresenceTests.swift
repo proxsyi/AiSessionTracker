@@ -1,6 +1,6 @@
 import AppKit
 import XCTest
-@testable import GPTTrackerFeature
+@testable import GPTUsageTracker
 
 @MainActor
 final class SettingsWindowPresenceTests: XCTestCase {

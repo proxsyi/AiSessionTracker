@@ -1,6 +1,6 @@
 import WebKit
 import XCTest
-@testable import GPTTrackerFeature
+@testable import GPTUsageTracker
 
 @MainActor
 final class WebsiteDataTests: XCTestCase {

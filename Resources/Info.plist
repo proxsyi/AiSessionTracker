@@ -3,21 +3,21 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Session Tracker</string>
+	<string>GPT Usage Tracker</string>
 	<key>CFBundleExecutable</key>
-	<string>CombinedSessionTracker</string>
+	<string>GPTUsageTracker</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.proxsyi.sessiontracker</string>
+	<string>com.proxsyi.gptsessionpinger</string>
 	<key>CFBundleName</key>
-	<string>CombinedSessionTracker</string>
+	<string>GPTUsageTracker</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.2</string>
+	<string>2.0.4</string>
 	<key>CFBundleVersion</key>
-	<string>0.1.2</string>
+	<string>2.0.4</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>

@@ -1,85 +1,48 @@
-# AI Session Tracker
+# GPT Usage Tracker
 
-Three native macOS menu-bar apps for tracking Claude, Codex, and ChatGPT usage.
+A native macOS menu-bar app that shows the live Codex and ChatGPT limits reported by your account.
 
-| App | Purpose | Branch |
-| --- | --- | --- |
-| **AI Session Tracker** | Claude, Codex, and ChatGPT in one three-tab app | `main` |
-| **Claude Session Pinger** | Claude usage, scheduled session pings, and optional wake support | `claude-session-pinger` |
-| **GPT Usage Tracker** | Codex and ChatGPT usage without session-pinging or wake features | `gpt-session-pinger` |
+## Features
 
-## AI Session Tracker
+- Keeps Codex and ChatGPT in separate, matching tabs.
+- Tracks rolling windows, weekly usage, code review, workspace limits, and purchased credits when ChatGPT reports them.
+- Shows ChatGPT message, model, and feature allowances only when the account reports real values.
+- Displays reset countdowns and locally sampled Codex trends without inventing limits.
+- Lets every dashboard counter, menu-bar percentage source, chart, and notification be enabled independently.
+- Offers per-counter usage alerts plus OpenAI service-health alerts.
+- Command-I toggles the popover; clicking elsewhere closes it like a normal menu-bar item.
 
-The mixed app keeps Claude and OpenAI logins, settings, alerts, and updater identities separate while presenting one consistent interface.
-
-- Claude, Codex, and ChatGPT dashboards use matching tabs and cards.
-- Usage counters appear only when the signed-in service reports them.
-- Claude keeps its 5-hour scheduling and ping workflow.
-- Codex tracks rolling windows, weekly usage, code review, workspace state, and credits when reported.
-- ChatGPT tracks message, model, and feature allowances only when reported.
-- Every visible counter and alert can be enabled independently.
-- The menu-bar star and ring can use separate Claude and GPT percentage sources.
-- Command-U opens Claude; Command-I opens the last selected Codex or ChatGPT tab.
+There is no session pinging, schedule, activity log, wake permission, or privileged helper in this app.
 
 ## Install
 
-Download `SessionTracker.app.zip` from the latest `tracker-v*` GitHub Release, unzip it, move **Session Tracker.app** to `/Applications`, and open it.
+Download `GPTSessionPinger.app.zip` from the latest `gpt-v*` release, unzip it, move **GPT Usage Tracker.app** to `/Applications`, and open it.
 
-Public downloads must be signed with Developer ID Application and notarized by Apple. Local Apple Development builds are intended only for the developer’s Mac.
-
-## Sign in
-
-Open **Settings**, choose a service, and use its built-in private browser:
-
-1. **Claude** captures the Claude session and organization.
-2. **Codex** and **ChatGPT** share one ChatGPT login.
-3. Logging out of one provider clears only that provider’s stored web session and embedded-browser data.
-
-The app does not read Safari or Chrome cookies.
+Open **Settings > General**, then sign in through the private in-app browser. The app captures the ChatGPT web session without reading Safari or Chrome cookies.
 
 ## Data and permissions
 
-- Keychain service `com.proxsyi.claudesessionpinger`: one Claude `webSession` record.
-- Keychain service `com.proxsyi.gptsessionpinger`: one ChatGPT `webSession` record shared by the Codex and ChatGPT tabs.
-- Settings stay in the provider-specific `UserDefaults` domains so standalone and mixed apps remain compatible.
-- Notifications are optional and controlled per usage counter and service state.
-- Launch at Login is optional.
-- Wake support exists only for Claude scheduling. The mixed app uses `com.proxsyi.sessiontracker.wake-helper`; the standalone Claude app uses its own isolated helper.
-- GPT Usage Tracker has no wake helper or administrator installation.
+- One `webSession` record is stored in Keychain service `com.proxsyi.gptsessionpinger` and shared by the Codex and ChatGPT tabs.
+- Settings and sampled trend history stay local to the Mac.
+- Notifications and Launch at Login are optional.
+- Logging out clears this app's Keychain login and embedded-browser data without affecting browser sessions or Claude apps.
+- Credentials are never written to logs or plain-text files.
 
-Credentials are not written to logs or plain-text files. The apps use consumer-web sessions and undocumented service endpoints, so provider changes can require an update.
+ChatGPT's consumer-web endpoints are undocumented, so provider changes can require an app update.
 
 ## Build
 
 Requires macOS 13 or newer and Xcode command-line tools.
 
 ```bash
-git clone https://github.com/proxsyi/AiSessionTracker.git
+git clone --branch gpt-session-pinger https://github.com/proxsyi/AiSessionTracker.git
 cd AiSessionTracker
 swift test
 ./Scripts/build_app.sh
 ```
 
-The signed local build is written to `dist/Session Tracker.app`.
-
-## Branches and releases
-
-- `main` is always the deployable mixed app.
-- `claude-session-pinger` is always the deployable Claude-only app.
-- `gpt-session-pinger` is always the deployable GPT-only app.
-
-Each release train builds, tests, signs, notarizes, and publishes all three apps with separate bundle IDs, tags, assets, and update feeds. See [AGENTS.md](AGENTS.md) for the exact release contract.
+The signed local build is written to `dist/GPT Usage Tracker.app`.
 
 ## Uninstall
 
-Quit the app and move it from `/Applications` to the Trash. The in-app **Log out** buttons remove stored web sessions without affecting browser logins.
-
-Only remove a wake helper when the corresponding app will no longer be used:
-
-```bash
-sudo rm -f /Library/PrivilegedHelperTools/com.proxsyi.sessiontracker.wake-helper
-sudo rm -f "/Library/Application Support/SessionTracker/allowed_uid"
-sudo rmdir "/Library/Application Support/SessionTracker" 2>/dev/null || true
-```
-
-Do not remove the standalone Claude helper if Claude Session Pinger is still installed.
+Use **Log out** first to remove the OpenAI web session, quit the app, and move it from `/Applications` to the Trash. No wake helper or administrator-installed component needs removal.

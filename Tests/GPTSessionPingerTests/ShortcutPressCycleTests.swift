@@ -1,5 +1,5 @@
 import Testing
-@testable import GPTTrackerFeature
+@testable import GPTUsageTracker
 
 @Suite("Shortcut press cycle")
 struct ShortcutPressCycleTests {

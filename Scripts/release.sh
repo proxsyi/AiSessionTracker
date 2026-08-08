@@ -5,7 +5,7 @@ set -euo pipefail
 # installed copies can find and install it via Settings > Check for updates.
 # Requires the `gh` CLI, authenticated with access to this repo.
 #
-# Usage: NOTARY_PROFILE="your-notary-profile" ./Scripts/release.sh
+# Usage: ./Scripts/release.sh
 # Bump the version in Resources/Info.plist and add a CHANGELOG.md entry
 # for it before running this.
 
@@ -13,25 +13,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
-TAG="tracker-v${VERSION}"
+TAG="gpt-v${VERSION}"
 
 echo "Releasing ${TAG}..."
 
-if [[ -z "${NOTARY_PROFILE:-}" ]]; then
-    echo "ERROR: set NOTARY_PROFILE to a stored notarytool keychain profile." >&2
-    exit 1
-fi
+./Scripts/build_app.sh
 
-DISTRIBUTION=1 ./Scripts/build_app.sh
-
-ASSET_NAME="SessionTracker.app.zip"
+ASSET_NAME="GPTSessionPinger.app.zip"
 rm -f "dist/${ASSET_NAME}"
-ditto -c -k --sequesterRsrc --keepParent "dist/Session Tracker.app" "dist/${ASSET_NAME}"
-xcrun notarytool submit "dist/${ASSET_NAME}" --keychain-profile "${NOTARY_PROFILE}" --wait
-xcrun stapler staple "dist/Session Tracker.app"
-spctl --assess --type execute --verbose=4 "dist/Session Tracker.app"
-rm -f "dist/${ASSET_NAME}"
-ditto -c -k --sequesterRsrc --keepParent "dist/Session Tracker.app" "dist/${ASSET_NAME}"
+ditto -c -k --sequesterRsrc --keepParent "dist/GPT Usage Tracker.app" "dist/${ASSET_NAME}"
 
 NOTES=$(awk "/^## v${VERSION}/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md)
 if [ -z "$NOTES" ]; then

@@ -2,42 +2,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "CombinedSessionTracker",
+    name: "GPTUsageTracker",
     platforms: [.macOS(.v13)],
     dependencies: [
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.4.0")
     ],
     targets: [
-        .target(
-            name: "GPTTrackerFeature",
-            path: "Sources/GPTSessionPinger",
-            exclude: ["App.swift"]
-        ),
         .executableTarget(
-            name: "CombinedSessionTracker",
+            name: "GPTUsageTracker",
             dependencies: [
-                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
-                "GPTTrackerFeature"
+                .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts")
             ],
-            path: "Sources/ClaudeSessionPinger",
+            path: "Sources/GPTSessionPinger",
             linkerSettings: []
         ),
-        .executableTarget(
-            name: "SessionPingerWakeHelper",
-            path: "Sources/SessionPingerWakeHelper",
-            linkerSettings: [
-                .linkedFramework("CoreFoundation"),
-                .linkedFramework("IOKit")
-            ]
-        ),
         .testTarget(
-            name: "CombinedSessionTrackerTests",
-            dependencies: ["CombinedSessionTracker"],
-            path: "Tests/ClaudeSessionPingerTests"
-        ),
-        .testTarget(
-            name: "GPTTrackerFeatureTests",
-            dependencies: ["GPTTrackerFeature"],
+            name: "GPTUsageTrackerTests",
+            dependencies: ["GPTUsageTracker"],
             path: "Tests/GPTSessionPingerTests"
         )
     ]
