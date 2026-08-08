@@ -52,14 +52,17 @@ fi
 if printf '%s\n' "${AVAILABLE_IDENTITIES}" | grep -Fq "${SIGN_IDENTITY}"; then
     echo "Signing with identity: ${SIGN_IDENTITY}"
     if [[ "${DISTRIBUTION:-0}" == "1" ]]; then
-        codesign --force --deep --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${APP_DIR}"
+        codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
+        codesign --force --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${APP_DIR}"
     else
-        codesign --force --deep --sign "${SIGN_IDENTITY}" "${APP_DIR}"
+        codesign --force --sign "${SIGN_IDENTITY}" "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
+        codesign --force --sign "${SIGN_IDENTITY}" "${APP_DIR}"
     fi
 else
     echo "WARNING: code-signing identity \"${SIGN_IDENTITY}\" not found -- using ad-hoc signing."
     echo "         The keychain will re-prompt on every update until this identity exists."
-    codesign --force --deep --sign - "${APP_DIR}"
+    codesign --force --sign - "${APP_DIR}/Contents/Resources/SessionPingerWakeHelper"
+    codesign --force --sign - "${APP_DIR}"
 fi
 
 codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
