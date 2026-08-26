@@ -150,16 +150,6 @@ struct MenuBarContentView: View {
                     resetText: weeklyResetText
                 )
             }
-            if settings.showFable5Bar {
-                usageRow(
-                    title: appState.usage?.fable5UsesSharedWeekly == true
-                        ? "Fable 5 (shared weekly)"
-                        : "Fable 5 weekly",
-                    percent: appState.usage?.fable5Percent,
-                    resetText: fable5ResetText,
-                    missingText: appState.usage == nil ? "No data yet" : "Not reported for this account"
-                )
-            }
 
             if let error = appState.usageError {
                 Text(error)
@@ -282,17 +272,6 @@ struct MenuBarContentView: View {
 
     private var weeklyResetText: String? {
         guard let date = appState.usage?.weeklyResetsAt else { return nil }
-        let day = date.formatted(.dateTime.day().month(.abbreviated).year())
-        let time = date.formatted(date: .omitted, time: .shortened)
-        return "Resets on \(day) at \(time)"
-    }
-
-    private var fable5ResetText: String? {
-        guard let usage = appState.usage else { return nil }
-        if usage.fable5UsesSharedWeekly {
-            return weeklyResetText.map { "Shared with Weekly · \($0)" } ?? "Shared with Weekly"
-        }
-        guard let date = usage.fable5ResetsAt else { return nil }
         let day = date.formatted(.dateTime.day().month(.abbreviated).year())
         let time = date.formatted(date: .omitted, time: .shortened)
         return "Resets on \(day) at \(time)"

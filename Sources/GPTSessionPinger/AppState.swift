@@ -14,6 +14,8 @@ final class AppState: ObservableObject {
     @Published var isRefreshingUsage = false
     @Published var serviceStatus: GPTServiceStatus?
     @Published var notificationTestStatus: String?
+    @Published var pingStatus: String?
+    @Published var isPinging = false
 
     let settings: SettingsStore
     let history: UsageHistoryStore
@@ -104,6 +106,34 @@ final class AppState: ObservableObject {
         notifiedThresholds.removeAll()
         notifiedUnavailableTracks.removeAll()
         lastResetDates.removeAll()
+        pingStatus = nil
+    }
+
+    func pingChatGPT() {
+        guard !isPinging else { return }
+        isPinging = true
+        pingStatus = nil
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let auth = try await ChatGPTWebSession.resolve(savedCredential: settings.sessionKey, accountID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader)
+                let outcome = try await ChatGPTClient.sendPing(
+                    auth: auth,
+                    cookieHeader: settings.effectiveCookieHeader,
+                    model: settings.pingModel,
+                    reasoningEffort: settings.pingReasoningEffort,
+                    message: settings.pingMessage,
+                    conversationID: settings.pingConversationID,
+                    parentMessageID: settings.pingParentMessageID
+                )
+                settings.pingConversationID = outcome.conversationID
+                settings.pingParentMessageID = outcome.parentMessageID
+                pingStatus = "Ping sent in the shared ChatGPT chat."
+            } catch {
+                pingStatus = (error as? ChatGPTPingError)?.localizedDescription ?? error.localizedDescription
+            }
+            isPinging = false
+        }
     }
 
     private func notifyUsageThresholdsIfNeeded(for fetched: GPTUsage) {
@@ -125,9 +155,9 @@ final class AppState: ObservableObject {
             if let percent = track.usedPercent {
                 var alreadyNotified = notifiedThresholds[id] ?? []
                 alreadyNotified = alreadyNotified.filter { $0 <= percent + 10 }
-                let thresholds = id == "codex-weekly"
-                    ? settings.weeklyUsageThresholds
-                    : [settings.additionalUsageAlertThreshold]
+                // Every percentage counter uses the same shared threshold picker.
+                // This keeps Codex, code-review, model, and feature alerts consistent.
+                let thresholds = settings.weeklyUsageThresholds
                 let crossed = thresholds.sorted().filter { percent >= $0 && !alreadyNotified.contains($0) }
                 alreadyNotified.formUnion(crossed)
                 notifiedThresholds[id] = alreadyNotified

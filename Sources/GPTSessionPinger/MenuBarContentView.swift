@@ -181,6 +181,13 @@ struct MenuBarContentView: View {
             if let error = appState.usageError {
                 Text(error).font(.system(size: 11)).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
             }
+            HStack {
+                Button(appState.isPinging ? "Pinging…" : "Ping shared chat") { appState.pingChatGPT() }
+                    .gptPrimaryButton().disabled(appState.isPinging || !settings.isConfigured)
+                if let status = appState.pingStatus {
+                    Text(status).font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary).lineLimit(2)
+                }
+            }
             refreshRow
         }
     }

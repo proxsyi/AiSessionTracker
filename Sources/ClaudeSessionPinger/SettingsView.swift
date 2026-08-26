@@ -44,7 +44,6 @@ struct SettingsView: View {
     @State private var weeklyThresholds: Set<Int> = []
     @State private var showSessionBar = true
     @State private var showWeeklyBar = true
-    @State private var showFable5Bar = false
     @State private var showNextPossibleCountdown = true
     @State private var showScheduledCountdown = true
     @State private var countdownFocus: CountdownFocus = .nextPossible
@@ -516,7 +515,6 @@ struct SettingsView: View {
             caption("Choose the Claude counters that appear in the dashboard. Each counter keeps its own reset window and alerts.")
             toggleRow("Session (5 hour)", isOn: $showSessionBar)
             toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
-            toggleRow("Fable 5 weekly", isOn: $showFable5Bar)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -550,7 +548,7 @@ struct SettingsView: View {
     private var usageBehaviorSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             SectionHeader(text: "Tracking behavior")
-            Text("The tracker displays exactly what Claude reports and keeps the 5-hour, weekly, and Fable windows separate.")
+            Text("The tracker displays exactly what Claude reports and keeps the 5-hour and weekly windows separate.")
                 .font(.system(size: 11))
                 .foregroundColor(ClaudeTheme.textPrimary)
             caption("Next-possible session timing is calculated from the active 5-hour reset and the last successful app ping; scheduled timing follows your saved schedule.")
@@ -811,7 +809,6 @@ struct SettingsView: View {
         weeklyThresholds = Set(settings.weeklyUsageThresholds)
         showSessionBar = settings.showSessionBar
         showWeeklyBar = settings.showWeeklyBar
-        showFable5Bar = settings.showFable5Bar
         showNextPossibleCountdown = settings.showNextPossibleCountdown
         showScheduledCountdown = settings.showScheduledCountdown
         countdownFocus = settings.countdownFocus
@@ -851,7 +848,6 @@ struct SettingsView: View {
         settings.weeklyUsageThresholds = weeklyThresholds.sorted()
         settings.showSessionBar = showSessionBar
         settings.showWeeklyBar = showWeeklyBar
-        settings.showFable5Bar = showFable5Bar
         settings.showNextPossibleCountdown = showNextPossibleCountdown
         settings.showScheduledCountdown = showScheduledCountdown
         settings.countdownFocus = countdownFocus

@@ -8,9 +8,6 @@ struct ClaudeUsage: Equatable {
     var sessionResetsAt: Date?
     var weeklyPercent: Int?
     var weeklyResetsAt: Date?
-    var fable5Percent: Int?
-    var fable5ResetsAt: Date?
-    var fable5UsesSharedWeekly: Bool
     var fetchedAt: Date
 }
 
@@ -102,18 +99,9 @@ enum UsageChecker {
         }
         let session = usageWindow(in: object, keys: ["five_hour", "fiveHour", "session"])
         let weekly = usageWindow(in: object, keys: ["seven_day", "sevenDay", "seven_day_all_models", "weekly"])
-        let fable5 = usageWindow(
-            in: object,
-            keys: [
-                "seven_day_fable_5", "seven_day_fable5", "seven_day_fable",
-                "fable_5", "fable5", "fable", "fable_weekly",
-                "fable_5_weekly", "sevenDayFable5", "sevenDayFable"
-            ]
-        ) ?? fableUsageWindow(in: object)
-        guard session != nil || weekly != nil || fable5 != nil else {
+        guard session != nil || weekly != nil else {
             throw UsageError.unexpectedResponse
         }
-        let fableUsesSharedWeekly = fable5 == nil && weekly != nil
         var planType = accountPlan(in: object)
         if planType == nil {
             planType = await fetchAccountPlan(
@@ -128,9 +116,6 @@ enum UsageChecker {
             sessionResetsAt: session?.resetsAt,
             weeklyPercent: weekly?.percent,
             weeklyResetsAt: weekly?.resetsAt,
-            fable5Percent: fable5?.percent ?? weekly?.percent,
-            fable5ResetsAt: fable5?.resetsAt ?? weekly?.resetsAt,
-            fable5UsesSharedWeekly: fableUsesSharedWeekly,
             fetchedAt: Date()
         )
     }
@@ -320,54 +305,6 @@ enum UsageChecker {
             return window
         }
         return nil
-    }
-
-    /// Fable has appeared both as a named top-level limit and inside the
-    /// newer dynamic model-scoped limit collection. A scoped entry can keep
-    /// model metadata and usage values in sibling dictionaries, so identify
-    /// the whole entry first and then search that entry for its usage window.
-    private static func fableUsageWindow(in value: Any) -> UsageWindow? {
-        if let dict = value as? [String: Any] {
-            for (key, child) in dict {
-                let normalized = key.lowercased().filter { $0.isLetter || $0.isNumber }
-                if normalized.contains("fable"), let window = usageWindowRecursively(in: child) {
-                    return window
-                }
-            }
-
-            let identifyingKeys = [
-                "model", "model_id", "modelId", "model_name", "modelName",
-                "model_family", "modelFamily", "scope", "name", "slug", "label", "id"
-            ]
-            let identifiesFable = identifyingKeys.contains { key in
-                dict[key].map { valueContainsFable($0) } ?? false
-            }
-            if identifiesFable, let window = usageWindowRecursively(in: dict) {
-                return window
-            }
-
-            for child in dict.values {
-                if let window = fableUsageWindow(in: child) { return window }
-            }
-        } else if let array = value as? [Any] {
-            for child in array {
-                if let window = fableUsageWindow(in: child) { return window }
-            }
-        }
-        return nil
-    }
-
-    private static func valueContainsFable(_ value: Any) -> Bool {
-        if let text = value as? String {
-            return text.lowercased().contains("fable")
-        }
-        if let dict = value as? [String: Any] {
-            return dict.values.contains { valueContainsFable($0) }
-        }
-        if let array = value as? [Any] {
-            return array.contains { valueContainsFable($0) }
-        }
-        return false
     }
 
     private static func usageWindowRecursively(in value: Any) -> UsageWindow? {

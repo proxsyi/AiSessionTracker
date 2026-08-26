@@ -42,8 +42,6 @@ struct SettingsView: View {
     @State private var hiddenTrackIDs: Set<String> = []
     @State private var alertTrackIDs: Set<String> = []
     @State private var weeklyThresholds: Set<Int> = []
-    @State private var additionalAlertThreshold = 90
-    @State private var additionalUsageAlertsEnabled = false
     @State private var enableCommandIShortcut = true
     @State private var preferClearGlass = true
     @State private var launchAtLogin = false
@@ -53,6 +51,9 @@ struct SettingsView: View {
     @State private var showingLogin = false
     @State private var showKeys = false
     @State private var isClearingLogin = false
+    @State private var pingModel = "gpt-5.4-mini"
+    @State private var pingReasoningEffort = "low"
+    @State private var pingMessage = "Say 1"
 
     init(
         topLeadingInset: CGFloat = 0,
@@ -168,6 +169,9 @@ struct SettingsView: View {
             switch selectedTab {
             case .general:
                 accountSection.padding(14).glassPanel()
+                if settingsScope != .codex {
+                    pingSection.padding(14).glassPanel()
+                }
                 displaySection.padding(14).glassPanel()
             case .usage:
                 trackedUsageSection.padding(14).glassPanel()
@@ -243,6 +247,32 @@ struct SettingsView: View {
         }
     }
 
+    private var pingSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            SectionHeader(text: "ChatGPT session ping")
+            Text("Pings use one shared ChatGPT conversation and the signed-in browser session.")
+                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            TextField("Message", text: $pingMessage).textFieldStyle(.roundedBorder)
+            HStack {
+                Text("Model").font(.system(size: 11)).foregroundColor(GPTTheme.textPrimary)
+                Spacer()
+                Text(pingModel).font(.system(size: 10, design: .monospaced)).foregroundColor(GPTTheme.textSecondary)
+            }
+            Picker("Reasoning effort", selection: $pingReasoningEffort) {
+                Text("Low (recommended)").tag("low")
+                Text("None (lowest compute)").tag("none")
+                Text("Medium").tag("medium")
+            }.pickerStyle(.menu)
+            HStack {
+                Button(appState.isPinging ? "Pinging…" : "Ping now") { appState.pingChatGPT() }
+                    .gptPrimaryButton().disabled(appState.isPinging || !settings.isConfigured)
+                if let pingStatus = appState.pingStatus {
+                    Text(pingStatus).font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
+                }
+            }
+        }
+    }
+
     private var trackedUsageSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(text: "Tracked usage")
@@ -273,23 +303,12 @@ struct SettingsView: View {
             SectionHeader(text: "Usage alerts")
             Text("Turn on exactly the live counters you want notifications for. The first refresh after launch is only a baseline.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            if let weekly = scopedUsageRows.first(where: { $0.id == "codex-weekly" }) {
-                toggleRow(weekly.title, isOn: alertBinding(for: weekly.id))
+            if !scopedUsageRows.isEmpty {
+                Text("Percentage counters use the shared thresholds below. Remaining-use counters notify once when ChatGPT reports them unavailable.")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
                 thresholdButtons(selection: $weeklyThresholds)
-            }
-            let otherRows = scopedUsageRows.filter { $0.id != "codex-weekly" }
-            if !otherRows.isEmpty {
-                toggleRow("Other counter alerts", isOn: $additionalUsageAlertsEnabled)
-                if additionalUsageAlertsEnabled {
-                    Picker("Other counter threshold", selection: $additionalAlertThreshold) {
-                        ForEach(SettingsStore.availableThresholds, id: \.self) { Text("\($0)%").tag($0) }
-                    }
-                    .pickerStyle(.menu)
-                    ForEach(otherRows) { row in toggleRow(row.title, isOn: alertBinding(for: row.id)) }
-                    Text("Percentage counters notify at the selected threshold. Remaining-use counters notify once when ChatGPT reports them unavailable.")
-                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-                }
-            } else if scopedUsageRows.isEmpty {
+                ForEach(scopedUsageRows) { row in toggleRow(row.title, isOn: alertBinding(for: row.id)) }
+            } else {
                 Text("No alertable usage counters are currently reported for this section.")
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
@@ -493,14 +512,15 @@ struct SettingsView: View {
         hiddenTrackIDs = settings.hiddenUsageTrackIDs
         alertTrackIDs = settings.alertEnabledUsageTrackIDs
         weeklyThresholds = Set(settings.weeklyUsageThresholds)
-        additionalAlertThreshold = settings.additionalUsageAlertThreshold
-        additionalUsageAlertsEnabled = settings.additionalUsageAlertsEnabled
         enableCommandIShortcut = settings.enableCommandIShortcut
         preferClearGlass = settings.preferClearGlass
         launchAtLogin = settings.launchAtLogin
         notifyOnServiceOutage = settings.notifyOnServiceOutage
         notifyOnServiceDegraded = settings.notifyOnServiceDegraded
         autoUpdate = settings.autoUpdateEnabled
+        pingModel = settings.pingModel
+        pingReasoningEffort = settings.pingReasoningEffort
+        pingMessage = settings.pingMessage
     }
 
     private func save(showPopoverAfterClose: Bool = false, closeWindow: Bool = true) {
@@ -512,14 +532,15 @@ struct SettingsView: View {
             settings.setAlertEnabled(alertTrackIDs.contains(row.id), for: row.id)
         }
         settings.weeklyUsageThresholds = weeklyThresholds.sorted()
-        settings.additionalUsageAlertThreshold = additionalAlertThreshold
-        settings.additionalUsageAlertsEnabled = additionalUsageAlertsEnabled
         settings.enableCommandIShortcut = enableCommandIShortcut
         settings.preferClearGlass = preferClearGlass
         settings.launchAtLogin = launchAtLogin
         settings.notifyOnServiceOutage = notifyOnServiceOutage
         settings.notifyOnServiceDegraded = notifyOnServiceDegraded
         settings.autoUpdateEnabled = autoUpdate
+        settings.pingModel = pingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "gpt-5.4-mini" : pingModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.pingReasoningEffort = pingReasoningEffort
+        settings.pingMessage = pingMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say 1" : pingMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         LoginItemManager.setEnabled(launchAtLogin)
         if closeWindow { appState.closeSettingsWindow?() }
         if showPopoverAfterClose {

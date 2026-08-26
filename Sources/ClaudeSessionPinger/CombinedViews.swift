@@ -13,14 +13,12 @@ enum CombinedServiceTab: String, CaseIterable, Identifiable {
 enum ClaudeMenuBarMeterSource: String, CaseIterable, Identifiable {
     case session
     case weekly
-    case fable5
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .session: return "Claude session (5 hour)"
         case .weekly: return "Claude weekly (7 day)"
-        case .fable5: return "Claude Fable 5 weekly"
         }
     }
 }
@@ -115,7 +113,6 @@ final class CombinedSelectionStore: ObservableObject {
         switch claudeMeterSource {
         case .session: return usage?.sessionPercent
         case .weekly: return usage?.weeklyPercent
-        case .fable5: return usage?.fable5Percent
         }
     }
 

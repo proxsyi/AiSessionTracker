@@ -47,7 +47,6 @@ final class SettingsStore: ObservableObject {
         static let conversationID = "conversationID"
         static let showSessionBar = "showSessionBar"
         static let showWeeklyBar = "showWeeklyBar"
-        static let showFable5Bar = "showFable5Bar"
         static let notifySessionAvailable = "notifySessionAvailable"
         static let notifySessionStarted = "notifySessionStarted"
         static let autoStartAvailableSessions = "autoStartAvailableSessions"
@@ -87,9 +86,6 @@ final class SettingsStore: ObservableObject {
     }
     @Published var showWeeklyBar: Bool {
         didSet { Self.serviceDefaults.set(showWeeklyBar, forKey: Keys.showWeeklyBar) }
-    }
-    @Published var showFable5Bar: Bool {
-        didSet { Self.serviceDefaults.set(showFable5Bar, forKey: Keys.showFable5Bar) }
     }
     @Published var notifySessionAvailable: Bool {
         didSet { Self.serviceDefaults.set(notifySessionAvailable, forKey: Keys.notifySessionAvailable) }
@@ -180,7 +176,6 @@ final class SettingsStore: ObservableObject {
         conversationID = defaults.string(forKey: Keys.conversationID) ?? ""
         showSessionBar = defaults.object(forKey: Keys.showSessionBar) == nil ? true : defaults.bool(forKey: Keys.showSessionBar)
         showWeeklyBar = defaults.object(forKey: Keys.showWeeklyBar) == nil ? true : defaults.bool(forKey: Keys.showWeeklyBar)
-        showFable5Bar = defaults.object(forKey: Keys.showFable5Bar) == nil ? false : defaults.bool(forKey: Keys.showFable5Bar)
         notifySessionAvailable = defaults.object(forKey: Keys.notifySessionAvailable) == nil ? true : defaults.bool(forKey: Keys.notifySessionAvailable)
         notifySessionStarted = defaults.object(forKey: Keys.notifySessionStarted) == nil ? true : defaults.bool(forKey: Keys.notifySessionStarted)
         autoStartAvailableSessions = defaults.bool(forKey: Keys.autoStartAvailableSessions)

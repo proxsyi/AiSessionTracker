@@ -26,6 +26,11 @@ final class SettingsStore: ObservableObject {
     private enum Keys {
         static let organizationID = "organizationID"
         static let accountPlanType = "accountPlanType"
+        static let pingModel = "chatGPTPingModel"
+        static let pingReasoningEffort = "chatGPTPingReasoningEffort"
+        static let pingMessage = "chatGPTPingMessage"
+        static let pingConversationID = "chatGPTPingConversationID"
+        static let pingParentMessageID = "chatGPTPingParentMessageID"
         static let showCategoryTabs = "trackerShowCategoryTabs"
         static let showHistoryChart = "trackerShowHistoryChart"
         static let automaticallyShowNewUsageTracks = "trackerAutomaticallyShowNewUsageTracks"
@@ -33,8 +38,6 @@ final class SettingsStore: ObservableObject {
         static let knownUsageTrackIDs = "trackerKnownUsageTrackIDs"
         static let alertEnabledUsageTrackIDs = "trackerAlertEnabledUsageTrackIDs"
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
-        static let additionalUsageAlertThreshold = "trackerAdditionalUsageAlertThreshold"
-        static let additionalUsageAlertsEnabled = "trackerAdditionalUsageAlertsEnabled"
         static let enableCommandIShortcut = "enableCommandIShortcut"
         static let preferClearGlass = "preferClearGlass"
         static let launchAtLogin = "launchAtLogin"
@@ -52,6 +55,11 @@ final class SettingsStore: ObservableObject {
     @Published var accountPlanType: String {
         didSet { Self.serviceDefaults.set(accountPlanType, forKey: Keys.accountPlanType) }
     }
+    @Published var pingModel: String { didSet { Self.serviceDefaults.set(pingModel, forKey: Keys.pingModel) } }
+    @Published var pingReasoningEffort: String { didSet { Self.serviceDefaults.set(pingReasoningEffort, forKey: Keys.pingReasoningEffort) } }
+    @Published var pingMessage: String { didSet { Self.serviceDefaults.set(pingMessage, forKey: Keys.pingMessage) } }
+    @Published var pingConversationID: String { didSet { Self.serviceDefaults.set(pingConversationID, forKey: Keys.pingConversationID) } }
+    @Published var pingParentMessageID: String { didSet { Self.serviceDefaults.set(pingParentMessageID, forKey: Keys.pingParentMessageID) } }
     @Published var showCategoryTabs: Bool {
         didSet { Self.serviceDefaults.set(showCategoryTabs, forKey: Keys.showCategoryTabs) }
     }
@@ -72,12 +80,6 @@ final class SettingsStore: ObservableObject {
     }
     @Published var weeklyUsageThresholds: [Int] {
         didSet { Self.saveInts(weeklyUsageThresholds, key: Keys.weeklyUsageThresholds) }
-    }
-    @Published var additionalUsageAlertThreshold: Int {
-        didSet { Self.serviceDefaults.set(additionalUsageAlertThreshold, forKey: Keys.additionalUsageAlertThreshold) }
-    }
-    @Published var additionalUsageAlertsEnabled: Bool {
-        didSet { Self.serviceDefaults.set(additionalUsageAlertsEnabled, forKey: Keys.additionalUsageAlertsEnabled) }
     }
     @Published var enableCommandIShortcut: Bool {
         didSet {
@@ -115,6 +117,11 @@ final class SettingsStore: ObservableObject {
         sessionKey = storedSessionKey
         cookieHeader = storedWebSession?.cookieHeader ?? ""
         accountPlanType = defaults.string(forKey: Keys.accountPlanType) ?? ChatGPTWebSession.planType(from: storedSessionKey) ?? ""
+        pingModel = defaults.string(forKey: Keys.pingModel) ?? "gpt-5.4-mini"
+        pingReasoningEffort = defaults.string(forKey: Keys.pingReasoningEffort) ?? "low"
+        pingMessage = defaults.string(forKey: Keys.pingMessage) ?? "Say 1"
+        pingConversationID = defaults.string(forKey: Keys.pingConversationID) ?? ""
+        pingParentMessageID = defaults.string(forKey: Keys.pingParentMessageID) ?? ""
         showCategoryTabs = defaults.object(forKey: Keys.showCategoryTabs) == nil ? true : defaults.bool(forKey: Keys.showCategoryTabs)
         showHistoryChart = defaults.object(forKey: Keys.showHistoryChart) == nil ? true : defaults.bool(forKey: Keys.showHistoryChart)
         automaticallyShowNewUsageTracks = defaults.object(forKey: Keys.automaticallyShowNewUsageTracks) == nil ? true : defaults.bool(forKey: Keys.automaticallyShowNewUsageTracks)
@@ -124,11 +131,6 @@ final class SettingsStore: ObservableObject {
         alertEnabledUsageTrackIDs = defaults.object(forKey: Keys.alertEnabledUsageTrackIDs) == nil ? ["codex-weekly"] : storedAlertIDs
         let storedWeekly = Self.loadInts(key: Keys.weeklyUsageThresholds)
         weeklyUsageThresholds = storedWeekly.isEmpty ? Self.defaultWeeklyThresholds : storedWeekly
-        let storedAdditionalThreshold = defaults.integer(forKey: Keys.additionalUsageAlertThreshold)
-        additionalUsageAlertThreshold = Self.availableThresholds.contains(storedAdditionalThreshold) ? storedAdditionalThreshold : 90
-        additionalUsageAlertsEnabled = defaults.object(forKey: Keys.additionalUsageAlertsEnabled) == nil
-            ? storedAlertIDs.contains(where: { $0 != "codex-weekly" })
-            : defaults.bool(forKey: Keys.additionalUsageAlertsEnabled)
         enableCommandIShortcut = defaults.object(forKey: Keys.enableCommandIShortcut) == nil ? true : defaults.bool(forKey: Keys.enableCommandIShortcut)
         preferClearGlass = defaults.object(forKey: Keys.preferClearGlass) == nil ? true : defaults.bool(forKey: Keys.preferClearGlass)
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
@@ -177,7 +179,6 @@ final class SettingsStore: ObservableObject {
     }
 
     func isAlertEnabled(for id: String) -> Bool {
-        if id != "codex-weekly" && !additionalUsageAlertsEnabled { return false }
         return alertEnabledUsageTrackIDs.contains(id)
     }
 
@@ -194,6 +195,8 @@ final class SettingsStore: ObservableObject {
         cookieHeader = ""
         organizationID = ""
         accountPlanType = ""
+        pingConversationID = ""
+        pingParentMessageID = ""
     }
 
     private func removeLegacySessionPreferencesIfNeeded(defaults: UserDefaults) {
