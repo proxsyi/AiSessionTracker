@@ -213,6 +213,21 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             }
         }
         NSApp.activate(ignoringOtherApps: true)
+
+        // AppKit normally sends didBecomeActive, but an accessory app can
+        // already be activating as a status-item click is delivered. In that
+        // narrow ordering the notification can arrive before the observer is
+        // installed, leaving the menu item looking unresponsive. A next-run-
+        // loop fallback makes the click deterministic while the guard keeps
+        // the normal notification path single-shot.
+        DispatchQueue.main.async { [weak self, weak button] in
+            guard let self, let button, !self.popover.isShown else { return }
+            if let activationObserver = self.activationObserver {
+                NotificationCenter.default.removeObserver(activationObserver)
+                self.activationObserver = nil
+            }
+            self.showPopover(relativeTo: button)
+        }
     }
 
     private func showPopover(relativeTo button: NSStatusBarButton) {

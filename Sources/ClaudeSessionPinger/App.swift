@@ -121,6 +121,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         gptShortcutTask = nil
     }
 
+    /// A menu-bar app has no ordinary document window to restore. Reopening it
+    /// from Finder, Spotlight, or `open` must therefore present the same
+    /// popover as clicking its status item.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            appState.requestTogglePopover?()
+        }
+        return true
+    }
+
     /// Cmd+, (the standard macOS Settings shortcut) opens Settings when it's
     /// closed and closes it when it's already open, whenever this app --
     /// the menu bar popover or the Settings window itself -- is active.

@@ -36,26 +36,16 @@ enum ChatGPTClient {
         guard !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ChatGPTPingError.missingCredentials }
         let conversation = conversationID?.nilIfEmpty
         let parent = parentMessageID?.nilIfEmpty ?? UUID().uuidString.lowercased()
-        let body: [String: Any] = [
-            "action": "next",
-            "messages": [[
-                "id": UUID().uuidString.lowercased(),
-                "author": ["role": "user"],
-                "content": ["content_type": "text", "parts": [message]],
-                "metadata": [:]
-            ]],
-            "model": model,
-            "parent_message_id": parent,
-            "conversation_id": conversation ?? NSNull(),
-            "history_and_training_disabled": true,
-            "timezone_offset_min": TimeZone.current.secondsFromGMT() / -60,
-            "suggestions": [],
-            "temporary": true,
-            "reasoning_effort": reasoningEffort
-        ]
+        let body = try makeRequestBody(
+            model: model,
+            reasoningEffort: reasoningEffort,
+            message: message,
+            conversationID: conversation,
+            parentMessageID: parent
+        )
         guard let requestBase = ChatGPTWebSession.makeBackendRequest(
             path: "/conversation", method: "POST", auth: auth,
-            cookieHeader: cookieHeader, accept: "text/event-stream", body: try JSONSerialization.data(withJSONObject: body)
+            cookieHeader: cookieHeader, accept: "text/event-stream", body: body
         ) else { throw ChatGPTPingError.serverError(0, "Invalid ChatGPT URL") }
         var request = requestBase
         request.timeoutInterval = timeout
@@ -69,6 +59,37 @@ enum ChatGPTClient {
         let parsed = parseStream(data)
         guard !parsed.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ChatGPTPingError.emptyReply }
         return ChatGPTPingOutcome(conversationID: parsed.conversationID ?? conversation ?? UUID().uuidString.lowercased(), parentMessageID: parsed.messageID ?? parent, replyText: parsed.reply)
+    }
+
+    static func makeRequestBody(
+        model: String,
+        reasoningEffort: String,
+        message: String,
+        conversationID: String?,
+        parentMessageID: String
+    ) throws -> Data {
+        let payload: [String: Any] = [
+            "action": "next",
+            "messages": [[
+                "id": UUID().uuidString.lowercased(),
+                "author": ["role": "user"],
+                "content": ["content_type": "text", "parts": [message]],
+                "metadata": [:]
+            ]],
+            "model": model,
+            "parent_message_id": parentMessageID,
+            "conversation_id": conversationID ?? NSNull(),
+            // A pinger needs a normal cloud conversation so the returned
+            // conversation and parent IDs can be reused on the next ping.
+            // Temporary/history-disabled chats do not provide that durable
+            // shared-chat behavior.
+            "history_and_training_disabled": false,
+            "timezone_offset_min": TimeZone.current.secondsFromGMT() / -60,
+            "suggestions": [],
+            "temporary": false,
+            "reasoning_effort": reasoningEffort
+        ]
+        return try JSONSerialization.data(withJSONObject: payload)
     }
 
     private static func parseStream(_ data: Data) -> (reply: String, conversationID: String?, messageID: String?) {
