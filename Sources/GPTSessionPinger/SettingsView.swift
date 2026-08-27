@@ -28,6 +28,7 @@ struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var history: UsageHistoryStore
+    @EnvironmentObject var codexSessionPinger: CodexSessionPinger
     let topLeadingInset: CGFloat
     let saveOnDisappear: Bool
     let frameWidth: CGFloat
@@ -176,7 +177,10 @@ struct SettingsView: View {
             case .general:
                 accountSection.padding(14).glassPanel()
                 displaySection.padding(14).glassPanel()
-                if settingsScope != .codex {
+                if combinedMode && settingsScope == .codex {
+                    codexSessionPingerSection.padding(14).glassPanel()
+                    codexSessionActivitySection.padding(14).glassPanel()
+                } else if settingsScope != .codex {
                     pingSection.padding(14).glassPanel()
                 }
                 activitySection.padding(14).glassPanel()
@@ -292,9 +296,121 @@ struct SettingsView: View {
         }
     }
 
+    private var codexSessionPingerSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Codex session pinger")
+            toggleRow("Schedule Codex pings", isOn: $codexSessionPinger.enabled)
+            Text("Pings use one dedicated Codex chat and the same signed-in ChatGPT session. A successful send reuses this chat on every future ping.")
+                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            VStack(alignment: .leading, spacing: 5) {
+                fieldLabel("Model")
+                Picker("Model", selection: $codexSessionPinger.model) {
+                    Text("GPT-5.4 mini (recommended) — gpt-5.4-mini").tag("gpt-5.4-mini")
+                }
+                .labelsHidden().pickerStyle(.menu).tint(GPTTheme.accent)
+                Text("The lowest-cost configured model is used with low reasoning effort.")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                fieldLabel("Reasoning effort")
+                Picker("Reasoning effort", selection: $codexSessionPinger.reasoningEffort) {
+                    Text("Low (recommended)").tag("low")
+                    Text("None").tag("none")
+                    Text("Medium").tag("medium")
+                }
+                .labelsHidden().pickerStyle(.menu).tint(GPTTheme.accent)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                fieldLabel("Message")
+                TextField("Say 1", text: $codexSessionPinger.message)
+                    .textFieldStyle(.plain).gptGlassField()
+            }
+            fieldLabel("Schedule")
+            ForEach(codexSessionPinger.slots.indices, id: \.self) { index in
+                HStack {
+                    Stepper(value: Binding(
+                        get: { codexSessionPinger.slots[index].hour },
+                        set: { codexSessionPinger.slots[index].hour = $0 }
+                    ), in: 0...23) {
+                        HStack(spacing: 6) {
+                            Text(codexTimeNumbers(for: codexSessionPinger.slots[index].hour))
+                                .frame(width: 40, alignment: .trailing)
+                            Text(codexTimePeriod(for: codexSessionPinger.slots[index].hour))
+                                .frame(width: 22, alignment: .leading)
+                        }
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(GPTTheme.textPrimary)
+                    }
+                    .controlSize(.small)
+                    Spacer()
+                    Button { removeCodexSlot(at: index) } label: { Image(systemName: "minus.circle") }
+                        .buttonStyle(.plain).foregroundColor(GPTTheme.textSecondary)
+                }
+            }
+            Button("Add time") { addCodexSlot() }.gptGhostButton()
+            if let message = codexSessionPinger.scheduleValidationMessage {
+                Text(message).font(.system(size: 10)).foregroundColor(.red)
+            } else {
+                Text("Every scheduled Codex ping must be at least 5 hours from the ones before and after it, including overnight.")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            }
+        }
+    }
+
+    private var codexSessionActivitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Activity")
+            Text(codexSessionPinger.conversationID.isEmpty
+                ? "The first Codex ping will create one dedicated chat and reuse it afterward."
+                : "Codex pings are reusing one dedicated chat.")
+                .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
+            HStack {
+                Button(codexSessionPinger.isPinging ? "Pinging…" : "Ping now") { codexSessionPinger.pingNow() }
+                    .gptPrimaryButton().disabled(codexSessionPinger.isPinging || !settings.isConfigured)
+                Spacer()
+                Button("Start fresh chat") { codexSessionPinger.startFreshChat() }.gptGhostButton()
+            }
+            if let status = codexSessionPinger.status {
+                Text(status).font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            }
+        }
+    }
+
+    private func addCodexSlot() {
+        let current = codexSessionPinger.slots
+        for hour in 0...23 {
+            let candidate = current + [CodexSessionPinger.ScheduleSlot(hour: hour, minute: 0)]
+            let minutes = candidate.map { $0.hour * 60 + $0.minute }.sorted()
+            let valid = minutes.enumerated().allSatisfy { index, minute in
+                let next = index == minutes.count - 1 ? minutes[0] + 24 * 60 : minutes[index + 1]
+                return next - minute >= 5 * 60
+            }
+            if valid {
+                codexSessionPinger.slots.append(CodexSessionPinger.ScheduleSlot(hour: hour, minute: 0))
+                return
+            }
+        }
+    }
+
+    private func removeCodexSlot(at index: Int) {
+        guard codexSessionPinger.slots.count > 1 else { return }
+        codexSessionPinger.slots.remove(at: index)
+    }
+
+    private func codexTimeNumbers(for hour: Int) -> String {
+        let normalized = hour % 12 == 0 ? 12 : hour % 12
+        return String(format: "%2d:00", normalized)
+    }
+
+    private func codexTimePeriod(for hour: Int) -> String {
+        hour < 12 ? "AM" : "PM"
+    }
+
     @ViewBuilder
     private var activitySection: some View {
-        if settingsScope == .codex {
+        if combinedMode && settingsScope == .codex {
+            EmptyView()
+        } else if settingsScope == .codex {
             codexActivitySection
         } else {
             pingActivitySection

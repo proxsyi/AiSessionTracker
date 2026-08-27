@@ -13,6 +13,7 @@ struct MenuBarContentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var history: UsageHistoryStore
+    @EnvironmentObject var codexSessionPinger: CodexSessionPinger
     @State private var now = Date()
     @State private var selectedUsageTab: UsageDisplayTab = .codex
     let embeddedTab: UsageDisplayTab?
@@ -111,12 +112,46 @@ struct MenuBarContentView: View {
             } else {
                 usageCard(title: "Codex usage", tracks: tracks).trackerMenuCard()
             }
+            if tab == .codex {
+                codexSessionPingerCard(tracks: tracks).trackerMenuCard()
+            }
             serviceStatus(for: tab).trackerMenuCard()
             if let reset = primaryResetDate(for: tracks) {
                 resetCountdown(reset).trackerMenuCard()
             }
             if tab == .codex, settings.showHistoryChart, let weekly = visibleWeeklyTrack {
                 historyChart(for: weekly).trackerMenuCard()
+            }
+        }
+    }
+
+    private func codexSessionPingerCard(tracks: [GPTUsageTrack]) -> some View {
+        let next = codexSessionPinger.nextPossibleSessionDate(resetDate: codexSessionResetDate(for: tracks))
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                SectionHeader(text: "Codex session pinger")
+                Spacer()
+                Button(codexSessionPinger.isPinging ? "Pinging…" : "Ping now") {
+                    codexSessionPinger.pingNow()
+                }
+                .gptPrimaryButton()
+                .disabled(codexSessionPinger.isPinging || !settings.isConfigured)
+            }
+            Text("Next possible session in")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(GPTTheme.textPrimary)
+            Text(countdownText(until: next))
+                .font(.system(size: 26, weight: .medium, design: .rounded).monospacedDigit())
+                .foregroundColor(GPTTheme.textPrimary)
+            if let scheduled = codexSessionPinger.nextFireDate {
+                Text("Scheduled ping in \(countdownText(until: scheduled)) · \(scheduled.formatted(date: .omitted, time: .shortened))")
+                    .font(.system(size: 10))
+                    .foregroundColor(GPTTheme.textSecondary)
+            }
+            if let status = codexSessionPinger.status {
+                Text(status)
+                    .font(.system(size: 10))
+                    .foregroundColor(status.contains("failed") || status.contains("expired") ? .red : GPTTheme.textSecondary)
             }
         }
     }
@@ -345,6 +380,17 @@ struct MenuBarContentView: View {
            let reset = weekly.resetsAt,
            reset > now { return reset }
         return tracks.compactMap(\.resetsAt).filter { $0 > now }.min()
+    }
+
+    /// The pinger's five-hour protection follows the live Codex rolling
+    /// window. Weekly is deliberately not substituted here: it is a separate
+    /// allowance and would make a currently available session look blocked.
+    private func codexSessionResetDate(for tracks: [GPTUsageTrack]) -> Date? {
+        tracks.first(where: {
+            $0.isCodexTrack
+                && $0.title.localizedCaseInsensitiveContains("5 hour")
+                && ($0.resetsAt ?? .distantPast) > now
+        })?.resetsAt
     }
 
     private func countdownText(until date: Date) -> String {

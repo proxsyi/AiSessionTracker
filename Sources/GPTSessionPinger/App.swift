@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings = SettingsStore()
     let history = UsageHistoryStore()
     lazy var appState = AppState(settings: settings, history: history)
+    lazy var codexSessionPinger = CodexSessionPinger(settings: settings)
     private var statusBarController: StatusBarController?
     private var settingsWindowController: SettingsWindowController?
     private var settingsShortcutMonitor: Any?
@@ -23,8 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        settingsWindowController = SettingsWindowController(settings: settings, history: history, appState: appState)
-        statusBarController = StatusBarController(settings: settings, history: history, appState: appState)
+        settingsWindowController = SettingsWindowController(settings: settings, history: history, appState: appState, codexSessionPinger: codexSessionPinger)
+        statusBarController = StatusBarController(settings: settings, history: history, appState: appState, codexSessionPinger: codexSessionPinger)
         installSettingsShortcut()
         observeMenuShortcutSetting()
         updateMenuShortcutListener()
@@ -151,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .environmentObject(settings)
             .environmentObject(history)
             .environmentObject(appState)
+            .environmentObject(codexSessionPinger)
         let hosting = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hosting)
         window.title = "GPT Tracker Menu Test"

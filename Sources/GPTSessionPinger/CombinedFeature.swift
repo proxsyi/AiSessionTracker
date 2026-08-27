@@ -25,10 +25,12 @@ public final class GPTFeatureState: ObservableObject {
     let settings = SettingsStore()
     let history = UsageHistoryStore()
     lazy var appState = AppState(settings: settings, history: history, updatesEnabled: false)
+    lazy var codexSessionPinger = CodexSessionPinger(settings: settings)
     private var cancellables = Set<AnyCancellable>()
 
     public init() {
         _ = appState
+        _ = codexSessionPinger
         appState.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
@@ -36,6 +38,9 @@ public final class GPTFeatureState: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
         history.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        codexSessionPinger.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
@@ -106,6 +111,7 @@ public struct GPTCombinedMenuContent: View {
             .environmentObject(feature.settings)
             .environmentObject(feature.history)
             .environmentObject(feature.appState)
+            .environmentObject(feature.codexSessionPinger)
     }
 }
 
@@ -135,5 +141,6 @@ public struct GPTCombinedSettingsContent: View {
             .environmentObject(feature.settings)
             .environmentObject(feature.history)
             .environmentObject(feature.appState)
+            .environmentObject(feature.codexSessionPinger)
     }
 }

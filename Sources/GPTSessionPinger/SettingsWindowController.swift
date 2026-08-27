@@ -7,12 +7,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let settings: SettingsStore
     private let history: UsageHistoryStore
     private let appState: AppState
+    private let codexSessionPinger: CodexSessionPinger
     private var deactivationObserver: NSObjectProtocol?
 
-    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState) {
+    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState, codexSessionPinger: CodexSessionPinger) {
         self.settings = settings
         self.history = history
         self.appState = appState
+        self.codexSessionPinger = codexSessionPinger
         super.init()
         appState.requestShowSettings = { [weak self] in
             self?.show()
@@ -73,6 +75,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             .environmentObject(settings)
             .environmentObject(history)
             .environmentObject(appState)
+            .environmentObject(codexSessionPinger)
         let hosting = NSHostingController(rootView: rootView)
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.title = "Settings"

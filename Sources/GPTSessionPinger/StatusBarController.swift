@@ -9,6 +9,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var cancellables = Set<AnyCancellable>()
     private let appState: AppState
     private let settings: SettingsStore
+    private let codexSessionPinger: CodexSessionPinger
     private var popoverOpenedAt = Date.distantPast
     private var activationObserver: NSObjectProtocol?
     private var shortcutKeyIsDown = false
@@ -16,9 +17,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private var outsideClickMonitor: Any?
     private var escapeKeyMonitor: Any?
 
-    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState) {
+    init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState, codexSessionPinger: CodexSessionPinger) {
         self.appState = appState
         self.settings = settings
+        self.codexSessionPinger = codexSessionPinger
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         popover = NSPopover()
         popover.behavior = .transient
@@ -32,6 +34,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
                 .environmentObject(settings)
                 .environmentObject(history)
                 .environmentObject(appState)
+                .environmentObject(codexSessionPinger)
         )
 
         if let button = statusItem.button {
