@@ -265,6 +265,338 @@ public struct TrackerWindowGlassBackground: NSViewRepresentable {
     }
 }
 
+/// The common settings information architecture. Provider modules supply only
+/// the cards inside each page; the rail, spacing, scrolling, and footer shell
+/// are rendered once here for Claude, Codex, and ChatGPT.
+public enum TrackerSettingsTab: String, CaseIterable, Identifiable {
+    case general = "General"
+    case usage = "Usage"
+    case alerts = "Alerts"
+    case app = "App"
+
+    public var id: String { rawValue }
+
+    public var symbol: String {
+        switch self {
+        case .general: return "slider.horizontal.3"
+        case .usage: return "chart.bar.fill"
+        case .alerts: return "bell.fill"
+        case .app: return "gearshape.fill"
+        }
+    }
+}
+
+public struct TrackerSettingsTabRail: View {
+    @Binding private var selection: TrackerSettingsTab
+    private let accent: Color
+    private let secondary: Color
+    private let clearGlass: Bool
+
+    public init(
+        selection: Binding<TrackerSettingsTab>,
+        accent: Color,
+        secondary: Color = .secondary,
+        clearGlass: Bool
+    ) {
+        _selection = selection
+        self.accent = accent
+        self.secondary = secondary
+        self.clearGlass = clearGlass
+    }
+
+    public var body: some View {
+        GeometryReader { proxy in
+            if #available(macOS 26.0, *) {
+                let railGlass = clearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
+                let tabCount = CGFloat(TrackerSettingsTab.allCases.count)
+                let indicatorWidth = max((proxy.size.width - 8) / tabCount, 1)
+                ZStack(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(accent.opacity(0.88))
+                        .overlay(
+                            Capsule(style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75)
+                        )
+                        .frame(width: indicatorWidth, height: 30)
+                        .offset(x: indicatorWidth * CGFloat(selectedIndex))
+                        .animation(.easeInOut(duration: 0.20), value: selection)
+
+                    HStack(spacing: 0) {
+                        ForEach(TrackerSettingsTab.allCases) { tab in
+                            Button { select(tab) } label: {
+                                Label(tab.rawValue, systemImage: tab.symbol)
+                                    .font(.system(size: 11, weight: selection == tab ? .semibold : .medium))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 7)
+                                    .contentShape(Capsule(style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(selection == tab ? Color.white : secondary)
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.14), value: selection)
+                }
+                .padding(4)
+                .frame(maxWidth: .infinity)
+                .contentShape(Capsule(style: .continuous))
+                .glassEffect(railGlass, in: Capsule(style: .continuous))
+                .simultaneousGesture(tabDragGesture(width: proxy.size.width))
+            } else {
+                Picker("Settings section", selection: $selection) {
+                    ForEach(TrackerSettingsTab.allCases) { tab in
+                        Label(tab.rawValue, systemImage: tab.symbol).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+        }
+        .frame(height: 42)
+    }
+
+    private var selectedIndex: Int {
+        TrackerSettingsTab.allCases.firstIndex(of: selection) ?? 0
+    }
+
+    private func select(_ tab: TrackerSettingsTab) {
+        guard tab != selection else { return }
+        selection = tab
+    }
+
+    private func tabDragGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 3).onChanged { value in
+            let available = max(width - 8, 1)
+            let x = min(max(value.location.x - 4, 0), available - 1)
+            let index = min(
+                Int(x / (available / CGFloat(TrackerSettingsTab.allCases.count))),
+                TrackerSettingsTab.allCases.count - 1
+            )
+            select(TrackerSettingsTab.allCases[index])
+        }
+    }
+}
+
+public struct TrackerSettingsWindow<Content: View, Footer: View>: View {
+    @Binding private var selectedTab: TrackerSettingsTab
+    private let accent: Color
+    private let secondary: Color
+    private let clearGlass: Bool
+    private let topLeadingInset: CGFloat
+    private let frameWidth: CGFloat
+    private let frameHeight: CGFloat
+    private let content: Content
+    private let footer: Footer
+
+    public init(
+        selectedTab: Binding<TrackerSettingsTab>,
+        accent: Color,
+        secondary: Color = .secondary,
+        clearGlass: Bool,
+        topLeadingInset: CGFloat,
+        frameWidth: CGFloat,
+        frameHeight: CGFloat,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder footer: () -> Footer
+    ) {
+        _selectedTab = selectedTab
+        self.accent = accent
+        self.secondary = secondary
+        self.clearGlass = clearGlass
+        self.topLeadingInset = topLeadingInset
+        self.frameWidth = frameWidth
+        self.frameHeight = frameHeight
+        self.content = content()
+        self.footer = footer()
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            TrackerSettingsTabRail(
+                selection: $selectedTab,
+                accent: accent,
+                secondary: secondary,
+                clearGlass: clearGlass
+            )
+            .padding(.leading, 8 + topLeadingInset)
+            .padding(.trailing, 8)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            ScrollView {
+                content.padding(20)
+            }
+            .scrollIndicators(.hidden)
+            .clipped()
+
+            Divider()
+            footer.background(TrackerWindowGlassBackground(clearGlass: clearGlass))
+        }
+        .frame(width: frameWidth, height: frameHeight)
+        .background(TrackerWindowGlassBackground(clearGlass: clearGlass).ignoresSafeArea())
+    }
+}
+
+public struct TrackerSettingsCard<Content: View>: View {
+    private let clearGlass: Bool
+    private let content: Content
+
+    public init(clearGlass: Bool, @ViewBuilder content: () -> Content) {
+        self.clearGlass = clearGlass
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .trackerGlassPanel(clearGlass: clearGlass)
+    }
+}
+
+public struct TrackerSettingsToggleRow: View {
+    private let title: String
+    @Binding private var isOn: Bool
+    private let accent: Color
+    private let clearGlass: Bool
+
+    public init(_ title: String, isOn: Binding<Bool>, accent: Color, clearGlass: Bool) {
+        self.title = title
+        _isOn = isOn
+        self.accent = accent
+        self.clearGlass = clearGlass
+    }
+
+    public var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundColor(.primary)
+            Spacer()
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(TrackerGlassToggleStyle(accent: accent, clearGlass: clearGlass))
+                .accessibilityLabel(Text(title))
+        }
+    }
+}
+
+public struct TrackerSettingsFieldLabel: View {
+    private let text: String
+    public init(_ text: String) { self.text = text }
+
+    public var body: some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
+    }
+}
+
+public struct TrackerSettingsCaption: View {
+    private let text: String
+    public init(_ text: String) { self.text = text }
+
+    public var body: some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+public struct TrackerSettingsThresholdPicker: View {
+    private let values: [Int]
+    @Binding private var selection: Set<Int>
+    private let accent: Color
+    private let clearGlass: Bool
+
+    public init(values: [Int], selection: Binding<Set<Int>>, accent: Color, clearGlass: Bool) {
+        self.values = values
+        _selection = selection
+        self.accent = accent
+        self.clearGlass = clearGlass
+    }
+
+    public var body: some View {
+        HStack(spacing: 6) {
+            ForEach(values, id: \.self) { value in
+                let isSelected = selection.contains(value)
+                Button {
+                    if isSelected { selection.remove(value) }
+                    else { selection.insert(value) }
+                } label: {
+                    Text("\(value)%")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .foregroundColor(isSelected ? .white : .secondary)
+                }
+                .buttonStyle(.plain)
+                .modifier(TrackerGlassChoice(isSelected: isSelected, accent: accent, clearGlass: clearGlass))
+                .help(isSelected ? "Click to stop notifying at \(value)%" : "Click to notify at \(value)%")
+            }
+        }
+    }
+}
+
+public struct TrackerSettingsFooter<Status: View>: View {
+    private let accent: Color
+    private let testTitle: String
+    private let testDisabled: Bool
+    private let saveDisabled: Bool
+    private let onTest: () -> Void
+    private let onCancel: () -> Void
+    private let onSave: () -> Void
+    private let status: Status
+
+    public init(
+        accent: Color,
+        testTitle: String,
+        testDisabled: Bool = false,
+        saveDisabled: Bool = false,
+        onTest: @escaping () -> Void,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping () -> Void,
+        @ViewBuilder status: () -> Status
+    ) {
+        self.accent = accent
+        self.testTitle = testTitle
+        self.testDisabled = testDisabled
+        self.saveDisabled = saveDisabled
+        self.onTest = onTest
+        self.onCancel = onCancel
+        self.onSave = onSave
+        self.status = status()
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            status
+            HStack {
+                Button(testTitle, action: onTest)
+                    .trackerGhostButton()
+                    .disabled(testDisabled)
+                Spacer()
+                Button("Cancel", action: onCancel).trackerGhostButton()
+                Button("Save", action: onSave)
+                    .trackerPrimaryButton(accent: accent)
+                    .disabled(saveDisabled)
+            }
+        }
+        .padding(16)
+    }
+}
+
+public extension View {
+    func trackerSettingsCardStack(spacing: CGFloat = 16) -> some View {
+        trackerGlassContainer(spacing: spacing)
+    }
+
+    func trackerMenuCardLayout() -> some View {
+        padding(14).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 public extension View {
     func trackerGlassPanel(cornerRadius: CGFloat = TrackerDesign.cardCornerRadius, tint: Color = .clear, clearGlass: Bool = true) -> some View {
         modifier(TrackerGlassPanel(cornerRadius: cornerRadius, tint: tint, clearGlass: clearGlass))

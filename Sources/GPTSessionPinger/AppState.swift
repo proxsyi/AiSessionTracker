@@ -155,9 +155,7 @@ final class AppState: ObservableObject {
             if let percent = track.usedPercent {
                 var alreadyNotified = notifiedThresholds[id] ?? []
                 alreadyNotified = alreadyNotified.filter { $0 <= percent + 10 }
-                // Every percentage counter uses the same shared threshold picker.
-                // This keeps Codex, code-review, model, and feature alerts consistent.
-                let thresholds = settings.weeklyUsageThresholds
+                let thresholds = settings.alertThresholds(for: id)
                 let crossed = thresholds.sorted().filter { percent >= $0 && !alreadyNotified.contains($0) }
                 alreadyNotified.formUnion(crossed)
                 notifiedThresholds[id] = alreadyNotified

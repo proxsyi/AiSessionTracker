@@ -1,27 +1,13 @@
 import AppKit
 import SwiftUI
-
-private enum SettingsTab: String, CaseIterable, Identifiable {
-    case general = "General"
-    case usage = "Usage"
-    case alerts = "Alerts"
-    case app = "App"
-    var id: String { rawValue }
-    var symbol: String {
-        switch self {
-        case .general: return "slider.horizontal.3"
-        case .usage: return "chart.bar.fill"
-        case .alerts: return "bell.fill"
-        case .app: return "gearshape.fill"
-        }
-    }
-}
+import TrackerDesignSystem
 
 private struct UsageSettingRow: Identifiable {
     let id: String
     let title: String
     let detail: String
     let scope: GPTUsageScope
+    let supportsPercentageAlerts: Bool
 }
 
 struct SettingsView: View {
@@ -38,13 +24,13 @@ struct SettingsView: View {
     let settingsScope: UsageDisplayTab?
     let serviceVisibility: Binding<Bool>?
 
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: TrackerSettingsTab = .general
     @State private var showCategoryTabs = true
     @State private var showHistoryChart = true
     @State private var automaticallyShowNewUsageTracks = true
     @State private var hiddenTrackIDs: Set<String> = []
     @State private var alertTrackIDs: Set<String> = []
-    @State private var weeklyThresholds: Set<Int> = []
+    @State private var trackThresholds: [String: Set<Int>] = [:]
     @State private var enableCommandIShortcut = true
     @State private var preferClearGlass = true
     @State private var launchAtLogin = false
@@ -79,23 +65,18 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabBar
-                .padding(.leading, 8 + topLeadingInset)
-                .padding(.trailing, 8)
-                .padding(.vertical, 8)
-            Divider()
-            ScrollView {
-                tabContent.padding(20)
-            }
-            .scrollIndicators(.hidden)
-            .clipped()
-            Divider()
-            footer.background(WindowGlassBackground(clearGlass: preferClearGlass))
-        }
+        TrackerSettingsWindow(
+            selectedTab: $selectedTab,
+            accent: GPTTheme.accent,
+            secondary: GPTTheme.textSecondary,
+            clearGlass: preferClearGlass,
+            topLeadingInset: topLeadingInset,
+            frameWidth: frameWidth,
+            frameHeight: frameHeight,
+            content: { tabContent },
+            footer: { footer }
+        )
         .environment(\.gptClearGlass, preferClearGlass)
-        .frame(width: frameWidth, height: frameHeight)
-        .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
         .onAppear {
             loadCurrentValues()
             appState.requestSaveAndCloseSettings = { save(showPopoverAfterClose: true) }
@@ -109,96 +90,42 @@ struct SettingsView: View {
         }
     }
 
-    private var tabBar: some View {
-        GeometryReader { proxy in
-            if #available(macOS 26.0, *) {
-                let railGlass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
-                let tabCount = CGFloat(SettingsTab.allCases.count)
-                let indicatorWidth = max((proxy.size.width - 8) / tabCount, 1)
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous)
-                        .fill(GPTTheme.accent.opacity(0.88))
-                        .overlay(Capsule(style: .continuous).strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75))
-                        .frame(width: indicatorWidth, height: 30)
-                        .offset(x: indicatorWidth * CGFloat(selectedTabIndex))
-                        .animation(.easeInOut(duration: 0.20), value: selectedTab)
-                    HStack(spacing: 0) {
-                        ForEach(SettingsTab.allCases) { tab in
-                            Button { selectTab(tab) } label: {
-                                Label(tab.rawValue, systemImage: tab.symbol)
-                                    .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 7)
-                                    .contentShape(Capsule(style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(selectedTab == tab ? Color.white : GPTTheme.textSecondary)
-                        }
-                    }
-                }
-                .padding(4)
-                .frame(maxWidth: .infinity)
-                .contentShape(Capsule(style: .continuous))
-                .glassEffect(railGlass, in: Capsule(style: .continuous))
-                .simultaneousGesture(tabDragGesture(width: proxy.size.width))
-            } else {
-                Picker("Settings section", selection: $selectedTab) {
-                    ForEach(SettingsTab.allCases) { tab in
-                        Label(tab.rawValue, systemImage: tab.symbol).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-        }
-        .frame(height: 42)
-    }
-
-    private var selectedTabIndex: Int { SettingsTab.allCases.firstIndex(of: selectedTab) ?? 0 }
-
-    private func selectTab(_ tab: SettingsTab) {
-        guard tab != selectedTab else { return }
-        selectedTab = tab
-    }
-
-    private func tabDragGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 3).onChanged { value in
-            let available = max(width - 8, 1)
-            let x = min(max(value.location.x - 4, 0), available - 1)
-            let index = min(Int(x / (available / CGFloat(SettingsTab.allCases.count))), SettingsTab.allCases.count - 1)
-            selectTab(SettingsTab.allCases[index])
-        }
-    }
-
     @ViewBuilder
     private var tabContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             switch selectedTab {
             case .general:
-                accountSection.padding(14).glassPanel()
-                displaySection.padding(14).glassPanel()
+                settingsCard { accountSection }
+                settingsCard { displaySection }
                 if combinedMode && settingsScope == .codex {
-                    codexSessionPingerSection.padding(14).glassPanel()
-                    codexSessionActivitySection.padding(14).glassPanel()
+                    settingsCard { codexSessionPingerSection }
+                    settingsCard { codexSessionActivitySection }
                 } else if settingsScope != .codex {
-                    pingSection.padding(14).glassPanel()
+                    settingsCard { pingSection }
                 }
-                activitySection.padding(14).glassPanel()
+                settingsCard { activitySection }
             case .usage:
-                trackedUsageSection.padding(14).glassPanel()
-                usageDisplaySection.padding(14).glassPanel()
-                usageExplanationSection.padding(14).glassPanel()
+                settingsCard { trackedUsageSection }
+                settingsCard { usageDisplaySection }
+                settingsCard { usageExplanationSection }
             case .alerts:
-                usageAlertsSection.padding(14).glassPanel()
-                serviceAlertsSection.padding(14).glassPanel()
+                settingsCard { usageAlertsSection }
+                if combinedMode && settingsScope == .codex {
+                    settingsCard { codexPingAlertsSection }
+                }
+                settingsCard { serviceAlertsSection }
             case .app:
-                appSection.padding(14).glassPanel()
+                settingsCard { appSection }
                 if showsUpdateControls {
-                    updatesSection.padding(14).glassPanel()
+                    settingsCard { updatesSection }
                 }
             }
         }
-        .gptGlassContainer()
+        .trackerSettingsCardStack()
+    }
+
+    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        TrackerSettingsCard(clearGlass: preferClearGlass, content: content)
     }
 
     private var accountSection: some View {
@@ -508,14 +435,27 @@ struct SettingsView: View {
             Text("Turn on exactly the live counters you want notifications for. The first refresh after launch is only a baseline.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             if !scopedUsageRows.isEmpty {
-                Text("Percentage counters use the shared thresholds below. Remaining-use counters notify once when ChatGPT reports them unavailable.")
+                Text("Each percentage counter has its own thresholds. Remaining-use counters notify once when ChatGPT reports them unavailable.")
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-                thresholdButtons(selection: $weeklyThresholds)
-                ForEach(scopedUsageRows) { row in toggleRow(row.title, isOn: alertBinding(for: row.id)) }
+                ForEach(scopedUsageRows) { row in
+                    toggleRow(row.title, isOn: alertBinding(for: row.id))
+                    if row.supportsPercentageAlerts {
+                        thresholdButtons(selection: thresholdBinding(for: row.id))
+                            .disabled(!alertTrackIDs.contains(row.id))
+                    }
+                }
             } else {
                 Text("No alertable usage counters are currently reported for this section.")
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
+        }
+    }
+
+    private var codexPingAlertsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Ping alerts")
+            toggleRow("Scheduled ping failures", isOn: $codexSessionPinger.notifyOnFailure)
+            toggleRow("Scheduled ping sent", isOn: $codexSessionPinger.notifyOnSuccess)
         }
     }
 
@@ -567,16 +507,16 @@ struct SettingsView: View {
     }
 
     private var footer: some View {
-        HStack {
-            Button(appState.isRefreshingUsage ? "Testing…" : "Test connection") {
+        TrackerSettingsFooter(
+            accent: GPTTheme.accent,
+            testTitle: appState.isRefreshingUsage ? "Testing…" : "Test connection",
+            testDisabled: appState.isRefreshingUsage,
+            onTest: {
                 Task { await appState.refreshUsage() }
-            }
-            .gptGhostButton().disabled(appState.isRefreshingUsage)
-            Spacer()
-            Button("Cancel") { appState.closeSettingsWindow?() }.gptGhostButton()
-            Button("Save") { save() }.gptPrimaryButton()
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
+            },
+            onCancel: { appState.closeSettingsWindow?() },
+            onSave: { save() }
+        ) { EmptyView() }
     }
 
     private var usageSettingRows: [UsageSettingRow] {
@@ -589,7 +529,8 @@ struct SettingsView: View {
                     ?? track.remainingText
                     ?? track.valueText
                     ?? "Account-reported usage counter",
-                scope: track.scope
+                scope: track.scope,
+                supportsPercentageAlerts: track.usedPercent != nil
             ))
         }
         return rows
@@ -646,34 +587,20 @@ struct SettingsView: View {
     }
 
     private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
-        HStack {
-            Text(title).font(.system(size: 11)).foregroundColor(GPTTheme.textPrimary)
-            Spacer()
-            Toggle("", isOn: isOn).labelsHidden().toggleStyle(GPTGlassToggleStyle()).accessibilityLabel(Text(title))
-        }
+        TrackerSettingsToggleRow(title, isOn: isOn, accent: GPTTheme.accent, clearGlass: preferClearGlass)
     }
 
     private func fieldLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundColor(GPTTheme.textSecondary)
+        TrackerSettingsFieldLabel(text)
     }
 
     private func thresholdButtons(selection: Binding<Set<Int>>) -> some View {
-        HStack(spacing: 6) {
-            ForEach(SettingsStore.availableThresholds, id: \.self) { value in
-                Button("\(value)%") {
-                    if selection.wrappedValue.contains(value) { selection.wrappedValue.remove(value) }
-                    else { selection.wrappedValue.insert(value) }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .foregroundColor(selection.wrappedValue.contains(value) ? .white : GPTTheme.textSecondary)
-                .gptGlassChoice(isSelected: selection.wrappedValue.contains(value))
-            }
-        }
+        TrackerSettingsThresholdPicker(
+            values: SettingsStore.availableThresholds,
+            selection: selection,
+            accent: GPTTheme.accent,
+            clearGlass: preferClearGlass
+        )
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
@@ -696,8 +623,22 @@ struct SettingsView: View {
 
     private func alertBinding(for id: String) -> Binding<Bool> {
         Binding(get: { alertTrackIDs.contains(id) }, set: { enabled in
-            if enabled { alertTrackIDs.insert(id) } else { alertTrackIDs.remove(id) }
+            if enabled {
+                alertTrackIDs.insert(id)
+                if trackThresholds[id, default: []].isEmpty {
+                    trackThresholds[id] = Set(SettingsStore.defaultWeeklyThresholds)
+                }
+            } else {
+                alertTrackIDs.remove(id)
+            }
         })
+    }
+
+    private func thresholdBinding(for id: String) -> Binding<Set<Int>> {
+        Binding(
+            get: { trackThresholds[id] ?? Set(SettingsStore.defaultWeeklyThresholds) },
+            set: { trackThresholds[id] = $0 }
+        )
     }
 
     private func windowDescription(_ seconds: Int) -> String {
@@ -721,7 +662,9 @@ struct SettingsView: View {
         automaticallyShowNewUsageTracks = settings.automaticallyShowNewUsageTracks
         hiddenTrackIDs = settings.hiddenUsageTrackIDs
         alertTrackIDs = settings.alertEnabledUsageTrackIDs
-        weeklyThresholds = Set(settings.weeklyUsageThresholds)
+        trackThresholds = Dictionary(uniqueKeysWithValues: usageSettingRows.map {
+            ($0.id, Set(settings.alertThresholds(for: $0.id)))
+        })
         enableCommandIShortcut = settings.enableCommandIShortcut
         preferClearGlass = settings.preferClearGlass
         launchAtLogin = settings.launchAtLogin
@@ -741,7 +684,12 @@ struct SettingsView: View {
             settings.setUsageTrackVisible(row.id, isVisible: !hiddenTrackIDs.contains(row.id))
             settings.setAlertEnabled(alertTrackIDs.contains(row.id), for: row.id)
         }
-        settings.weeklyUsageThresholds = weeklyThresholds.sorted()
+        for row in usageSettingRows {
+            settings.setAlertThresholds(
+                Array(trackThresholds[row.id] ?? Set(SettingsStore.defaultWeeklyThresholds)),
+                for: row.id
+            )
+        }
         settings.enableCommandIShortcut = enableCommandIShortcut
         settings.preferClearGlass = preferClearGlass
         settings.launchAtLogin = launchAtLogin

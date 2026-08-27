@@ -38,6 +38,7 @@ final class SettingsStore: ObservableObject {
         static let knownUsageTrackIDs = "trackerKnownUsageTrackIDs"
         static let alertEnabledUsageTrackIDs = "trackerAlertEnabledUsageTrackIDs"
         static let weeklyUsageThresholds = "weeklyUsageThresholds"
+        static let usageThresholdsByTrack = "trackerUsageThresholdsByTrack"
         static let enableCommandIShortcut = "enableCommandIShortcut"
         static let preferClearGlass = "preferClearGlass"
         static let launchAtLogin = "launchAtLogin"
@@ -80,6 +81,9 @@ final class SettingsStore: ObservableObject {
     }
     @Published var weeklyUsageThresholds: [Int] {
         didSet { Self.saveInts(weeklyUsageThresholds, key: Keys.weeklyUsageThresholds) }
+    }
+    @Published private(set) var usageThresholdsByTrack: [String: [Int]] {
+        didSet { Self.saveIntDictionary(usageThresholdsByTrack, key: Keys.usageThresholdsByTrack) }
     }
     @Published var enableCommandIShortcut: Bool {
         didSet {
@@ -128,9 +132,15 @@ final class SettingsStore: ObservableObject {
         hiddenUsageTrackIDs = Self.loadSet(key: Keys.hiddenUsageTrackIDs)
         knownUsageTrackIDs = Self.loadSet(key: Keys.knownUsageTrackIDs)
         let storedAlertIDs = Self.loadSet(key: Keys.alertEnabledUsageTrackIDs)
-        alertEnabledUsageTrackIDs = defaults.object(forKey: Keys.alertEnabledUsageTrackIDs) == nil ? ["codex-weekly"] : storedAlertIDs
+        let effectiveAlertIDs: Set<String> = defaults.object(forKey: Keys.alertEnabledUsageTrackIDs) == nil ? ["codex-weekly"] : storedAlertIDs
+        alertEnabledUsageTrackIDs = effectiveAlertIDs
         let storedWeekly = Self.loadInts(key: Keys.weeklyUsageThresholds)
-        weeklyUsageThresholds = storedWeekly.isEmpty ? Self.defaultWeeklyThresholds : storedWeekly
+        let effectiveWeekly = storedWeekly.isEmpty ? Self.defaultWeeklyThresholds : storedWeekly
+        weeklyUsageThresholds = effectiveWeekly
+        let storedTrackThresholds = Self.loadIntDictionary(key: Keys.usageThresholdsByTrack)
+        usageThresholdsByTrack = storedTrackThresholds.isEmpty
+            ? Dictionary(uniqueKeysWithValues: effectiveAlertIDs.map { ($0, effectiveWeekly) })
+            : storedTrackThresholds
         enableCommandIShortcut = defaults.object(forKey: Keys.enableCommandIShortcut) == nil ? true : defaults.bool(forKey: Keys.enableCommandIShortcut)
         preferClearGlass = defaults.object(forKey: Keys.preferClearGlass) == nil ? true : defaults.bool(forKey: Keys.preferClearGlass)
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
@@ -185,9 +195,20 @@ final class SettingsStore: ObservableObject {
     func setAlertEnabled(_ enabled: Bool, for id: String) {
         if enabled {
             alertEnabledUsageTrackIDs.insert(id)
+            if usageThresholdsByTrack[id, default: []].isEmpty {
+                usageThresholdsByTrack[id] = Self.defaultWeeklyThresholds
+            }
         } else {
             alertEnabledUsageTrackIDs.remove(id)
         }
+    }
+
+    func alertThresholds(for id: String) -> [Int] {
+        usageThresholdsByTrack[id] ?? Self.defaultWeeklyThresholds
+    }
+
+    func setAlertThresholds(_ thresholds: [Int], for id: String) {
+        usageThresholdsByTrack[id] = Array(Set(thresholds)).sorted()
     }
 
     func clearChatGPTLogin() {
@@ -240,6 +261,18 @@ final class SettingsStore: ObservableObject {
 
     private static func saveInts(_ values: [Int], key: String) {
         guard let data = try? JSONEncoder().encode(Array(Set(values)).sorted()) else { return }
+        Self.serviceDefaults.set(data, forKey: key)
+    }
+
+    private static func loadIntDictionary(key: String) -> [String: [Int]] {
+        guard let data = Self.serviceDefaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: [Int]].self, from: data) else { return [:] }
+        return decoded.mapValues { Array(Set($0)).sorted() }
+    }
+
+    private static func saveIntDictionary(_ values: [String: [Int]], key: String) {
+        let normalized = values.mapValues { Array(Set($0)).sorted() }
+        guard let data = try? JSONEncoder().encode(normalized) else { return }
         Self.serviceDefaults.set(data, forKey: key)
     }
 }

@@ -1,23 +1,6 @@
 import SwiftUI
 import AppKit
-
-private enum SettingsTab: String, CaseIterable, Identifiable {
-    case general = "General"
-    case usage = "Usage"
-    case alerts = "Alerts"
-    case app = "App"
-
-    var id: String { rawValue }
-
-    var symbol: String {
-        switch self {
-        case .general: return "slider.horizontal.3"
-        case .usage: return "chart.bar.fill"
-        case .alerts: return "bell.fill"
-        case .app: return "gearshape.fill"
-        }
-    }
-}
+import TrackerDesignSystem
 
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
@@ -53,7 +36,7 @@ struct SettingsView: View {
     @State private var enableCommandUShortcut = true
     @State private var enableScheduledWake = true
     @State private var preferClearGlass = true
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: TrackerSettingsTab = .general
     @State private var autoUpdate = true
     @State private var testResult: String?
     @State private var isTesting = false
@@ -81,29 +64,18 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            settingsTabBar
-                .padding(.leading, 8 + topLeadingInset)
-                .padding(.trailing, 8)
-                .padding(.vertical, 8)
-
-            Divider()
-
-            ScrollView {
-                tabContent
-                    .padding(20)
-            }
-            .scrollIndicators(.hidden)
-            .clipped()
-
-            Divider()
-
-            footer
-                .background(WindowGlassBackground(clearGlass: preferClearGlass))
-        }
+        TrackerSettingsWindow(
+            selectedTab: $selectedTab,
+            accent: ClaudeTheme.accent,
+            secondary: ClaudeTheme.textSecondary,
+            clearGlass: preferClearGlass,
+            topLeadingInset: topLeadingInset,
+            frameWidth: frameWidth,
+            frameHeight: frameHeight,
+            content: { tabContent },
+            footer: { footer }
+        )
         .environment(\.claudeClearGlass, preferClearGlass)
-        .frame(width: frameWidth, height: frameHeight)
-        .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
         .onAppear {
             loadCurrentValues()
             appState.refreshWakeTestResult()
@@ -127,103 +99,34 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private var settingsTabBar: some View {
-        GeometryReader { proxy in
-            if #available(macOS 26.0, *) {
-                let railGlass = preferClearGlass ? Glass.clear : Glass.clear.tint(Color.primary.opacity(0.10))
-                let tabCount = CGFloat(SettingsTab.allCases.count)
-                let indicatorWidth = max((proxy.size.width - 8) / tabCount, 1)
-                ZStack(alignment: .leading) {
-                    Capsule(style: .continuous)
-                        .fill(ClaudeTheme.accent.opacity(0.88))
-                        .overlay(
-                            Capsule(style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.75)
-                        )
-                        .frame(width: indicatorWidth, height: 30)
-                        .offset(x: indicatorWidth * CGFloat(selectedTabIndex))
-                        .animation(.easeInOut(duration: 0.20), value: selectedTab)
-
-                    HStack(spacing: 0) {
-                        ForEach(SettingsTab.allCases) { tab in
-                            Button {
-                                selectTab(tab)
-                            } label: {
-                                Label(tab.rawValue, systemImage: tab.symbol)
-                                    .font(.system(size: 11, weight: selectedTab == tab ? .semibold : .medium))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 7)
-                                    .contentShape(Capsule(style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(selectedTab == tab ? Color.white : ClaudeTheme.textSecondary)
-                        }
-                    }
-                    .animation(.easeInOut(duration: 0.14), value: selectedTab)
-                }
-                .padding(4)
-                .frame(maxWidth: .infinity)
-                .contentShape(Capsule(style: .continuous))
-                .glassEffect(railGlass, in: Capsule(style: .continuous))
-                .simultaneousGesture(tabDragGesture(width: proxy.size.width))
-            } else {
-                Picker("Settings section", selection: $selectedTab) {
-                    ForEach(SettingsTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-        }
-        .frame(height: 42)
-    }
-
-    private var selectedTabIndex: Int {
-        SettingsTab.allCases.firstIndex(of: selectedTab) ?? 0
-    }
-
-    private func selectTab(_ tab: SettingsTab) {
-        guard tab != selectedTab else { return }
-        selectedTab = tab
-    }
-
-    private func tabDragGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 3)
-            .onChanged { value in
-                let inset: CGFloat = 4
-                let availableWidth = max(width - (inset * 2), 1)
-                let relativeX = min(max(value.location.x - inset, 0), availableWidth - 1)
-                let index = min(Int(relativeX / (availableWidth / CGFloat(SettingsTab.allCases.count))), SettingsTab.allCases.count - 1)
-                selectTab(SettingsTab.allCases[index])
-            }
-    }
-
-    @ViewBuilder
     private var tabContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             switch selectedTab {
             case .general:
-                accountSection.padding(14).glassPanel()
-                displaySection.padding(14).glassPanel()
-                pingSection.padding(14).glassPanel()
-                activitySection.padding(14).glassPanel()
+                settingsCard { accountSection }
+                settingsCard { displaySection }
+                settingsCard { pingSection }
+                settingsCard { activitySection }
             case .usage:
-                trackedUsageSection.padding(14).glassPanel()
-                sessionDisplaySection.padding(14).glassPanel()
-                usageBehaviorSection.padding(14).glassPanel()
+                settingsCard { trackedUsageSection }
+                settingsCard { sessionDisplaySection }
+                settingsCard { usageBehaviorSection }
             case .alerts:
-                usageAlertsSection.padding(14).glassPanel()
-                pingAlertsSection.padding(14).glassPanel()
-                serviceAlertsSection.padding(14).glassPanel()
+                settingsCard { usageAlertsSection }
+                settingsCard { pingAlertsSection }
+                settingsCard { serviceAlertsSection }
             case .app:
-                appSection.padding(14).glassPanel()
+                settingsCard { appSection }
                 if showsUpdateControls {
-                    updatesSection.padding(14).glassPanel()
+                    settingsCard { updatesSection }
                 }
             }
         }
-        .claudeGlassContainer()
+        .trackerSettingsCardStack()
+    }
+
+    private func settingsCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        TrackerSettingsCard(clearGlass: preferClearGlass, content: content)
     }
 
     @ViewBuilder
@@ -242,29 +145,15 @@ struct SettingsView: View {
     /// right edge, like System Settings. The explicit accessibility label
     /// keeps VoiceOver working despite `labelsHidden()`.
     private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
-        HStack {
-            Text(title)
-                .font(.system(size: 12))
-                .foregroundColor(ClaudeTheme.textPrimary)
-            Spacer()
-            Toggle("", isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(ClaudeGlassToggleStyle())
-                .accessibilityLabel(Text(title))
-        }
+        TrackerSettingsToggleRow(title, isOn: isOn, accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
     }
 
     private func fieldLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundColor(ClaudeTheme.textSecondary)
+        TrackerSettingsFieldLabel(text)
     }
 
     private func caption(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundColor(ClaudeTheme.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+        TrackerSettingsCaption(text)
     }
 
     // MARK: - Sections
@@ -597,11 +486,12 @@ struct SettingsView: View {
     }
 
     private func thresholdButtons(selection: Binding<Set<Int>>) -> some View {
-        HStack(spacing: 6) {
-            ForEach(SettingsStore.availableThresholds, id: \.self) { threshold in
-                thresholdPill(threshold: threshold, selection: selection)
-            }
-        }
+        TrackerSettingsThresholdPicker(
+            values: SettingsStore.availableThresholds,
+            selection: selection,
+            accent: ClaudeTheme.accent,
+            clearGlass: preferClearGlass
+        )
     }
 
     private func thresholdEnabledBinding(selection: Binding<Set<Int>>, defaults: [Int]) -> Binding<Bool> {
@@ -611,26 +501,6 @@ struct SettingsView: View {
                 selection.wrappedValue = enabled ? Set(defaults) : []
             }
         )
-    }
-
-    private func thresholdPill(threshold: Int, selection: Binding<Set<Int>>) -> some View {
-        let isOn = selection.wrappedValue.contains(threshold)
-        return Button(action: {
-            if isOn {
-                selection.wrappedValue.remove(threshold)
-            } else {
-                selection.wrappedValue.insert(threshold)
-            }
-        }) {
-            Text("\(threshold)%")
-                .font(.system(size: 11, weight: .medium).monospacedDigit())
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .foregroundColor(isOn ? .white : ClaudeTheme.textSecondary)
-        }
-        .buttonStyle(.plain)
-        .claudeGlassChoice(isSelected: isOn)
-        .help(isOn ? "Click to stop notifying at \(threshold)%" : "Click to notify at \(threshold)%")
     }
 
     private func wakeTestResultSymbol(_ outcome: WakeTestOutcome) -> String {
@@ -720,30 +590,22 @@ struct SettingsView: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let testResult = testResult {
+        TrackerSettingsFooter(
+            accent: ClaudeTheme.accent,
+            testTitle: isTesting ? "Testing\u{2026}" : "Test connection",
+            testDisabled: isTesting,
+            saveDisabled: scheduleValidationMessage != nil,
+            onTest: runTest,
+            onCancel: { appState.closeSettingsWindow?() },
+            onSave: { save() }
+        ) {
+            if let testResult {
                 Text(testResult)
                     .font(.system(size: 11))
                     .foregroundColor(testResult.hasPrefix("Success") ? ClaudeTheme.accent : .red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack {
-                Button(isTesting ? "Testing\u{2026}" : "Test connection") {
-                    runTest()
-                }
-                .claudeGhostButton()
-                .disabled(isTesting)
-                Spacer()
-                Button("Cancel") {
-                    appState.closeSettingsWindow?()
-                }
-                .claudeGhostButton()
-                Button("Save") { save() }
-                    .claudePrimaryButton()
-                    .disabled(scheduleValidationMessage != nil)
-            }
         }
-        .padding(16)
     }
 
     // MARK: - Helpers

@@ -2,6 +2,7 @@ import AppKit
 import Charts
 import Combine
 import SwiftUI
+import TrackerDesignSystem
 
 enum UsageDisplayTab: String, CaseIterable, Identifiable {
     case codex = "Codex"
@@ -112,10 +113,10 @@ struct MenuBarContentView: View {
             } else {
                 usageCard(title: "Codex usage", tracks: tracks).trackerMenuCard()
             }
+            serviceStatus(for: tab).trackerMenuCard()
             if tab == .codex {
                 codexSessionPingerCard(tracks: tracks).trackerMenuCard()
             }
-            serviceStatus(for: tab).trackerMenuCard()
             if let reset = primaryResetDate(for: tracks) {
                 resetCountdown(reset).trackerMenuCard()
             }
@@ -451,8 +452,7 @@ struct MenuBarContentView: View {
 
 private extension View {
     func trackerMenuCard() -> some View {
-        padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        trackerMenuCardLayout()
             .glassPanel()
     }
 }

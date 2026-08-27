@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import TrackerDesignSystem
 
 struct MenuBarContentView: View {
     @EnvironmentObject var appState: AppState
@@ -20,18 +21,18 @@ struct MenuBarContentView: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let update = appState.availableUpdate {
                     updateBanner(update)
-                        .padding(14)
+                        .trackerMenuCardLayout()
                         .glassPanel()
                 }
                 usageSection
-                    .padding(14)
+                    .trackerMenuCardLayout()
                     .glassPanel()
                 serviceStatusSection
-                    .padding(14)
+                    .trackerMenuCardLayout()
                     .glassPanel()
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
                     countdownSection
-                        .padding(14)
+                        .trackerMenuCardLayout()
                         .glassPanel()
                 }
             }
@@ -43,18 +44,18 @@ struct MenuBarContentView: View {
                 header
                 if let update = appState.availableUpdate {
                     updateBanner(update)
-                        .padding(14)
+                        .trackerMenuCardLayout()
                         .glassPanel()
                 }
                 usageSection
-                    .padding(14)
+                    .trackerMenuCardLayout()
                     .glassPanel()
                 serviceStatusSection
-                    .padding(14)
+                    .trackerMenuCardLayout()
                     .glassPanel()
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
                     countdownSection
-                        .padding(14)
+                        .trackerMenuCardLayout()
                         .glassPanel()
                 }
                 actionsSection

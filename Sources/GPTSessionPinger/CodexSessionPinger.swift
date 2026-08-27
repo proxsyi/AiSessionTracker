@@ -24,6 +24,8 @@ final class CodexSessionPinger: ObservableObject {
         static let slots = "codexSessionPingerScheduleSlots"
         static let lastResult = "codexSessionPingerLastResult"
         static let lastSuccess = "codexSessionPingerLastSuccess"
+        static let notifyOnFailure = "codexSessionPingerNotifyOnFailure"
+        static let notifyOnSuccess = "codexSessionPingerNotifyOnSuccess"
     }
 
     private static let defaults = UserDefaults(suiteName: "com.proxsyi.sessiontracker") ?? .standard
@@ -36,6 +38,8 @@ final class CodexSessionPinger: ObservableObject {
     @Published var conversationID: String { didSet { save() } }
     @Published var parentMessageID: String { didSet { save() } }
     @Published var slots: [ScheduleSlot] { didSet { save(); reschedule() } }
+    @Published var notifyOnFailure: Bool { didSet { save() } }
+    @Published var notifyOnSuccess: Bool { didSet { save() } }
     @Published private(set) var isPinging = false
     @Published private(set) var status: String?
     @Published private(set) var nextFireDate: Date?
@@ -62,6 +66,8 @@ final class CodexSessionPinger: ObservableObject {
         }
         status = defaults.string(forKey: Keys.lastResult)
         lastSuccess = defaults.object(forKey: Keys.lastSuccess) as? Date
+        notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) as? Bool ?? true
+        notifyOnSuccess = defaults.object(forKey: Keys.notifyOnSuccess) as? Bool ?? true
         reschedule()
     }
 
@@ -158,7 +164,7 @@ final class CodexSessionPinger: ObservableObject {
             status = manual ? "Codex ping sent in its dedicated chat." : "Scheduled Codex ping sent in its dedicated chat."
             Self.defaults.set(lastSuccess, forKey: Keys.lastSuccess)
             save()
-            if !manual {
+            if !manual && notifyOnSuccess {
                 let content = UNMutableNotificationContent()
                 content.title = "Scheduled Codex ping sent"
                 content.body = "The dedicated Codex chat was updated."
@@ -167,7 +173,7 @@ final class CodexSessionPinger: ObservableObject {
         } catch {
             status = (error as? ChatGPTPingError)?.localizedDescription ?? error.localizedDescription
             save()
-            if !manual {
+            if !manual && notifyOnFailure {
                 let content = UNMutableNotificationContent()
                 content.title = "Scheduled Codex ping failed"
                 content.body = status ?? "Sign in again from Settings and retry."
@@ -184,6 +190,8 @@ final class CodexSessionPinger: ObservableObject {
         defaults.set(message, forKey: Keys.message)
         defaults.set(conversationID, forKey: Keys.conversationID)
         defaults.set(parentMessageID, forKey: Keys.parentMessageID)
+        defaults.set(notifyOnFailure, forKey: Keys.notifyOnFailure)
+        defaults.set(notifyOnSuccess, forKey: Keys.notifyOnSuccess)
         defaults.set(status, forKey: Keys.lastResult)
         if let data = try? JSONEncoder().encode(slots) { defaults.set(data, forKey: Keys.slots) }
     }
