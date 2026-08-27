@@ -178,10 +178,11 @@ struct SettingsView: View {
                 displaySection.padding(14).glassPanel()
                 if settingsScope != .codex {
                     pingSection.padding(14).glassPanel()
-                    pingActivitySection.padding(14).glassPanel()
                 }
+                activitySection.padding(14).glassPanel()
             case .usage:
                 trackedUsageSection.padding(14).glassPanel()
+                usageDisplaySection.padding(14).glassPanel()
                 usageExplanationSection.padding(14).glassPanel()
             case .alerts:
                 usageAlertsSection.padding(14).glassPanel()
@@ -241,10 +242,6 @@ struct SettingsView: View {
             if !combinedMode {
                 toggleRow("Show Codex and ChatGPT tabs", isOn: $showCategoryTabs)
             }
-            if settingsScope != .chatGPT {
-                toggleRow("Show Codex weekly trend", isOn: $showHistoryChart)
-            }
-            toggleRow("Automatically show newly discovered limits", isOn: $automaticallyShowNewUsageTracks)
             Text(displayExplanation)
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
@@ -295,6 +292,15 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var activitySection: some View {
+        if settingsScope == .codex {
+            codexActivitySection
+        } else {
+            pingActivitySection
+        }
+    }
+
     private var pingActivitySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Activity")
@@ -325,6 +331,24 @@ struct SettingsView: View {
         }
     }
 
+    private var codexActivitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Activity")
+            HStack(alignment: .firstTextBaseline) {
+                fieldLabel("Last result")
+                Spacer()
+                Text(appState.usageError ?? (appState.usage == nil ? "No usage data yet" : "Usage refreshed"))
+                    .font(.system(size: 10))
+                    .foregroundColor(appState.usageError == nil ? GPTTheme.textPrimary : .red)
+                    .multilineTextAlignment(.trailing)
+            }
+            Text(appState.usage == nil
+                ? "Refresh usage after signing in to load this account's Codex counters."
+                : "Codex counters are read from the same signed-in ChatGPT account and refreshed every five minutes.")
+                .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
+        }
+    }
+
     private var trackedUsageSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(text: "Tracked usage")
@@ -337,6 +361,18 @@ struct SettingsView: View {
             } else {
                 ForEach(scopedUsageRows) { row in usageToggle(row) }
             }
+        }
+    }
+
+    private var usageDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Usage display")
+            if settingsScope != .chatGPT {
+                toggleRow("Show Codex weekly trend", isOn: $showHistoryChart)
+            }
+            toggleRow("Automatically show newly discovered limits", isOn: $automaticallyShowNewUsageTracks)
+            Text("These controls affect only visible, account-reported counters. They do not change the limits themselves.")
+                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
     }
 
