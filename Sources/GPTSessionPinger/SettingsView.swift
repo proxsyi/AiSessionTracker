@@ -222,11 +222,11 @@ struct SettingsView: View {
                         Button(isClearingLogin ? "Clearing…" : "Log out") { clearLogin() }
                             .gptGhostButton()
                             .disabled(isClearingLogin)
+                        Text("Logging out clears this app's Keychain login and embedded-browser data. Safari and Claude Session Pinger are unaffected.")
+                            .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
                     }
                 }
             }
-            Text("Logging out clears this app's Keychain login and embedded-browser data. Safari and Claude Session Pinger are unaffected.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
     }
 
@@ -452,7 +452,7 @@ struct SettingsView: View {
 
     private var footer: some View {
         HStack {
-            Button(appState.isRefreshingUsage ? "Refreshing…" : "Refresh usage") {
+            Button(appState.isRefreshingUsage ? "Testing…" : "Test connection") {
                 Task { await appState.refreshUsage() }
             }
             .gptGhostButton().disabled(appState.isRefreshingUsage)
