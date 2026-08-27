@@ -9,7 +9,12 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "TrackerDesignSystem",
+            path: "Sources/TrackerDesignSystem"
+        ),
+        .target(
             name: "GPTTrackerFeature",
+            dependencies: ["TrackerDesignSystem"],
             path: "Sources/GPTSessionPinger",
             exclude: ["App.swift"]
         ),
@@ -17,6 +22,7 @@ let package = Package(
             name: "CombinedSessionTracker",
             dependencies: [
                 .product(name: "KeyboardShortcuts", package: "KeyboardShortcuts"),
+                "TrackerDesignSystem",
                 "GPTTrackerFeature"
             ],
             path: "Sources/ClaudeSessionPinger",
