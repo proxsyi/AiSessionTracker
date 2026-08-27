@@ -30,6 +30,8 @@ struct SettingsView: View {
     @EnvironmentObject var history: UsageHistoryStore
     let topLeadingInset: CGFloat
     let saveOnDisappear: Bool
+    let frameWidth: CGFloat
+    let frameHeight: CGFloat
     let showsUpdateControls: Bool
     let combinedMode: Bool
     let settingsScope: UsageDisplayTab?
@@ -58,6 +60,8 @@ struct SettingsView: View {
     init(
         topLeadingInset: CGFloat = 0,
         saveOnDisappear: Bool = false,
+        frameWidth: CGFloat = 500,
+        frameHeight: CGFloat = 640,
         showsUpdateControls: Bool = true,
         combinedMode: Bool = false,
         settingsScope: UsageDisplayTab? = nil,
@@ -65,6 +69,8 @@ struct SettingsView: View {
     ) {
         self.topLeadingInset = topLeadingInset
         self.saveOnDisappear = saveOnDisappear
+        self.frameWidth = frameWidth
+        self.frameHeight = frameHeight
         self.showsUpdateControls = showsUpdateControls
         self.combinedMode = combinedMode
         self.settingsScope = settingsScope
@@ -87,7 +93,7 @@ struct SettingsView: View {
             footer.background(WindowGlassBackground(clearGlass: preferClearGlass))
         }
         .environment(\.gptClearGlass, preferClearGlass)
-        .frame(width: 500, height: 640)
+        .frame(width: frameWidth, height: frameHeight)
         .background(WindowGlassBackground(clearGlass: preferClearGlass).ignoresSafeArea())
         .onAppear {
             loadCurrentValues()
@@ -172,6 +178,7 @@ struct SettingsView: View {
                 displaySection.padding(14).glassPanel()
                 if settingsScope != .codex {
                     pingSection.padding(14).glassPanel()
+                    pingActivitySection.padding(14).glassPanel()
                 }
             case .usage:
                 trackedUsageSection.padding(14).glassPanel()
@@ -193,32 +200,28 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Account")
             if settings.isConfigured {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("ChatGPT connected").font(.system(size: 12, weight: .semibold)).foregroundColor(GPTTheme.textPrimary)
-                        Text("Plan: \(planName)").font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-                    }
-                    Spacer()
-                    Button("Switch account") { showingLogin = true }.gptPrimaryButton()
-                    Button(isClearingLogin ? "Clearing…" : "Log out") { clearLogin() }
-                        .gptGhostButton().disabled(isClearingLogin)
-                }
+                Button("Log in again") { showingLogin = true }.gptPrimaryButton()
+                Text("Using a previously captured session (\(settings.maskedSessionKey)). Plan: \(planName).")
+                    .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
             } else {
                 Text("Sign in through the private in-app browser to read this account's usage counters.")
                     .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
                 Button("Log in to ChatGPT") { showingLogin = true }.gptPrimaryButton()
             }
             Button { showKeys.toggle() } label: {
-                Label("Connection details", systemImage: showKeys ? "chevron.down" : "chevron.right")
+                Label("Keys", systemImage: showKeys ? "chevron.down" : "chevron.right")
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundColor(GPTTheme.textSecondary)
+            .gptGhostButton()
             if showKeys {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 8) {
                     detailRow("Access token", settings.maskedSessionKey.isEmpty ? "Not stored" : settings.maskedSessionKey)
                     detailRow("Account ID", settings.organizationID.isEmpty ? "Not reported" : settings.organizationID)
                     detailRow("App browser cookies", settings.cookieHeader.isEmpty ? "Not stored" : "Stored securely in Keychain")
+                    if settings.isConfigured {
+                        Button(isClearingLogin ? "Clearing…" : "Log out") { clearLogin() }
+                            .gptGhostButton()
+                            .disabled(isClearingLogin)
+                    }
                 }
             }
             Text("Logging out clears this app's Keychain login and embedded-browser data. Safari and Claude Session Pinger are unaffected.")
@@ -249,25 +252,74 @@ struct SettingsView: View {
 
     private var pingSection: some View {
         VStack(alignment: .leading, spacing: 9) {
-            SectionHeader(text: "ChatGPT session ping")
+            SectionHeader(text: "Ping")
             Text("Pings use one shared ChatGPT conversation and the signed-in browser session.")
                 .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            TextField("Message", text: $pingMessage).textFieldStyle(.roundedBorder)
-            HStack {
-                Text("Model").font(.system(size: 11)).foregroundColor(GPTTheme.textPrimary)
-                Spacer()
-                Text(pingModel).font(.system(size: 10, design: .monospaced)).foregroundColor(GPTTheme.textSecondary)
+            VStack(alignment: .leading, spacing: 5) {
+                fieldLabel("Model")
+                Picker("Model", selection: $pingModel) {
+                    Text("GPT-5.4 mini (recommended) — gpt-5.4-mini").tag("gpt-5.4-mini")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .tint(GPTTheme.accent)
+                Text("Uses the lowest supported reasoning effort for this model. The same model is used for every ping.")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
-            Picker("Reasoning effort", selection: $pingReasoningEffort) {
-                Text("Low (recommended)").tag("low")
-                Text("None (lowest compute)").tag("none")
-                Text("Medium").tag("medium")
-            }.pickerStyle(.menu)
+            VStack(alignment: .leading, spacing: 5) {
+                fieldLabel("Reasoning effort")
+                Picker("Reasoning effort", selection: $pingReasoningEffort) {
+                    Text("Low (recommended)").tag("low")
+                    Text("None").tag("none")
+                    Text("Medium").tag("medium")
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .tint(GPTTheme.accent)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                fieldLabel("Message")
+                TextField("Say 1", text: $pingMessage)
+                    .textFieldStyle(.plain)
+                    .gptGlassField()
+            }
             HStack {
                 Button(appState.isPinging ? "Pinging…" : "Ping now") { appState.pingChatGPT() }
                     .gptPrimaryButton().disabled(appState.isPinging || !settings.isConfigured)
                 if let pingStatus = appState.pingStatus {
                     Text(pingStatus).font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
+                }
+            }
+        }
+    }
+
+    private var pingActivitySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Activity")
+            Text(settings.pingConversationID.isEmpty
+                ? "The next ping will create one dedicated ChatGPT chat and reuse it afterward."
+                : "Pings are reusing one dedicated ChatGPT chat.")
+                .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
+            HStack(alignment: .firstTextBaseline) {
+                fieldLabel("Last result")
+                Spacer()
+                Text(appState.pingStatus ?? "No pings yet")
+                    .font(.system(size: 10))
+                    .foregroundColor(GPTTheme.textPrimary)
+                    .multilineTextAlignment(.trailing)
+            }
+            if !settings.pingConversationID.isEmpty {
+                HStack {
+                    Button("Open pinger chat") { openPingerChat() }.gptGhostButton()
+                    Spacer()
+                    Button("Start fresh chat") {
+                        settings.pingConversationID = ""
+                        settings.pingParentMessageID = ""
+                        appState.pingStatus = "The next ping will use a new shared chat."
+                    }
+                    .gptGhostButton()
                 }
             }
         }
@@ -449,6 +501,12 @@ struct SettingsView: View {
         }
     }
 
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundColor(GPTTheme.textSecondary)
+    }
+
     private func thresholdButtons(selection: Binding<Set<Int>>) -> some View {
         HStack(spacing: 6) {
             ForEach(SettingsStore.availableThresholds, id: \.self) { value in
@@ -566,5 +624,11 @@ struct SettingsView: View {
             appState.clearAccountData()
             isClearingLogin = false
         }
+    }
+
+    private func openPingerChat() {
+        guard !settings.pingConversationID.isEmpty,
+              let url = URL(string: "https://chatgpt.com/c/\(settings.pingConversationID)") else { return }
+        NSWorkspace.shared.open(url)
     }
 }
