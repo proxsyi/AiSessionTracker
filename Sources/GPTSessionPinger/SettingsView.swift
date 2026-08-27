@@ -10,7 +10,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general: return "slider.horizontal.3"
-        case .usage: return "chart.line.uptrend.xyaxis"
+        case .usage: return "chart.bar.fill"
         case .alerts: return "bell.fill"
         case .app: return "gearshape.fill"
         }
@@ -169,10 +169,10 @@ struct SettingsView: View {
             switch selectedTab {
             case .general:
                 accountSection.padding(14).glassPanel()
+                displaySection.padding(14).glassPanel()
                 if settingsScope != .codex {
                     pingSection.padding(14).glassPanel()
                 }
-                displaySection.padding(14).glassPanel()
             case .usage:
                 trackedUsageSection.padding(14).glassPanel()
                 usageExplanationSection.padding(14).glassPanel()
