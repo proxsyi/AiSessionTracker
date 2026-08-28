@@ -10,12 +10,19 @@
 #include <time.h>
 #include <unistd.h>
 
-#define HELPER_VERSION "2"
-#define OWNER_IDENTIFIER "com.proxsyi.sessiontracker"
+#define HELPER_VERSION "3"
+#define CLAUDE_OWNER_IDENTIFIER "com.proxsyi.sessiontracker.claude"
+#define CODEX_OWNER_IDENTIFIER "com.proxsyi.sessiontracker.codex"
 #define ALLOWED_UID_PATH "/Library/Application Support/SessionTracker/allowed_uid"
 
 static void print_usage(void) {
-    fprintf(stderr, "usage: wake-helper version | schedule <unix-seconds> | cancel <unix-seconds> | hold <seconds> | sleep\n");
+    fprintf(stderr, "usage: wake-helper version | schedule <claude|codex> <unix-seconds> | cancel <claude|codex> <unix-seconds> | hold <seconds> | sleep\n");
+}
+
+static CFStringRef owner_for_channel(const char *channel) {
+    if (strcmp(channel, "claude") == 0) return CFSTR(CLAUDE_OWNER_IDENTIFIER);
+    if (strcmp(channel, "codex") == 0) return CFSTR(CODEX_OWNER_IDENTIFIER);
+    return NULL;
 }
 
 static int caller_is_allowed(void) {
@@ -101,9 +108,14 @@ int main(int argc, const char *argv[]) {
         return 0;
     }
 
-    if (argc == 3 && (strcmp(argv[1], "schedule") == 0 || strcmp(argv[1], "cancel") == 0)) {
+    if (argc == 4 && (strcmp(argv[1], "schedule") == 0 || strcmp(argv[1], "cancel") == 0)) {
+        CFStringRef owner = owner_for_channel(argv[2]);
+        if (owner == NULL) {
+            fprintf(stderr, "invalid wake channel\n");
+            return 64;
+        }
         double timestamp = 0;
-        if (!parse_timestamp(argv[2], &timestamp)) {
+        if (!parse_timestamp(argv[3], &timestamp)) {
             fprintf(stderr, "invalid or unsafe wake timestamp\n");
             return 64;
         }
@@ -112,7 +124,6 @@ int main(int argc, const char *argv[]) {
             fprintf(stderr, "could not create wake date\n");
             return 1;
         }
-        CFStringRef owner = CFSTR(OWNER_IDENTIFIER);
         CFStringRef event_type = CFSTR(kIOPMAutoWake);
         IOReturn result = strcmp(argv[1], "schedule") == 0
             ? IOPMSchedulePowerEvent(date, owner, event_type)

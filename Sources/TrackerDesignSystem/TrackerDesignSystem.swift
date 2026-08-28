@@ -265,6 +265,194 @@ public struct TrackerWindowGlassBackground: NSViewRepresentable {
     }
 }
 
+/// The common dashboard stack used by every service inside the menu-bar
+/// popover. Provider modules supply data and actions; spacing, card material,
+/// typography, and row alignment stay identical.
+public struct TrackerMenuStack<Content: View>: View {
+    private let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .trackerGlassContainer(spacing: 12)
+    }
+}
+
+public struct TrackerMenuCard<Content: View>: View {
+    private let clearGlass: Bool
+    private let content: Content
+
+    public init(clearGlass: Bool, @ViewBuilder content: () -> Content) {
+        self.clearGlass = clearGlass
+        self.content = content()
+    }
+
+    public var body: some View {
+        content
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .trackerGlassPanel(clearGlass: clearGlass)
+    }
+}
+
+public struct TrackerMenuUsageRow: View {
+    private let title: String
+    private let value: String
+    private let percent: Int?
+    private let detail: String?
+    private let missingDetail: String?
+    private let valueColor: Color
+    private let clearGlass: Bool
+    private let showsBar: Bool
+
+    public init(
+        title: String,
+        value: String,
+        percent: Int?,
+        detail: String?,
+        missingDetail: String? = nil,
+        valueColor: Color,
+        clearGlass: Bool,
+        showsBar: Bool = true
+    ) {
+        self.title = title
+        self.value = value
+        self.percent = percent
+        self.detail = detail
+        self.missingDetail = missingDetail
+        self.valueColor = valueColor
+        self.clearGlass = clearGlass
+        self.showsBar = showsBar
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                Spacer()
+                Text(value)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundColor(valueColor)
+            }
+            if showsBar {
+                TrackerUsageBar(percent: percent, color: valueColor, clearGlass: clearGlass)
+            }
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            } else if percent == nil, let missingDetail {
+                Text(missingDetail)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+}
+
+public struct TrackerMenuServiceStatus: View {
+    private let message: String
+    private let detail: String
+    private let statusColor: Color
+    private let help: String
+    private let onOpen: () -> Void
+
+    public init(
+        message: String,
+        detail: String,
+        statusColor: Color,
+        help: String,
+        onOpen: @escaping () -> Void
+    ) {
+        self.message = message
+        self.detail = detail
+        self.statusColor = statusColor
+        self.help = help
+        self.onOpen = onOpen
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Circle().fill(statusColor).frame(width: 7, height: 7)
+                Text(message)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(detail)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
+        .help(help)
+    }
+}
+
+/// Claude and Codex use the same pinger/countdown card. The provider supplies
+/// only its dates, status text, accent-styled button, and feature names.
+public struct TrackerMenuSessionCard<Action: View>: View {
+    private let title: String
+    private let countdown: String
+    private let secondary: String?
+    private let status: String?
+    private let statusColor: Color
+    private let action: Action
+
+    public init(
+        title: String,
+        countdown: String,
+        secondary: String?,
+        status: String? = nil,
+        statusColor: Color = .secondary,
+        @ViewBuilder action: () -> Action
+    ) {
+        self.title = title
+        self.countdown = countdown
+        self.secondary = secondary
+        self.status = status
+        self.statusColor = statusColor
+        self.action = action()
+    }
+
+    public var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                TrackerSectionHeader(text: title)
+                Text(countdown)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+                if let secondary {
+                    Text(secondary)
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.8))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let status {
+                    Text(status)
+                        .font(.system(size: 10))
+                        .foregroundColor(statusColor)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 4)
+            action
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// The common settings information architecture. Provider modules supply only
 /// the cards inside each page; the rail, spacing, scrolling, and footer shell
 /// are rendered once here for Claude, Codex, and ChatGPT.

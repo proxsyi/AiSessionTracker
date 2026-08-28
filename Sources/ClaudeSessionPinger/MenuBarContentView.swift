@@ -18,55 +18,41 @@ struct MenuBarContentView: View {
     @ViewBuilder
     var body: some View {
         if embedded {
-            VStack(alignment: .leading, spacing: 12) {
+            TrackerMenuStack {
                 if let update = appState.availableUpdate {
-                    updateBanner(update)
-                        .trackerMenuCardLayout()
-                        .glassPanel()
+                    menuCard { updateBanner(update) }
                 }
-                usageSection
-                    .trackerMenuCardLayout()
-                    .glassPanel()
-                serviceStatusSection
-                    .trackerMenuCardLayout()
-                    .glassPanel()
+                menuCard { usageSection }
+                menuCard { serviceStatusSection }
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
-                    countdownSection
-                        .trackerMenuCardLayout()
-                        .glassPanel()
+                    menuCard { countdownSection }
                 }
             }
-            .claudeGlassContainer(spacing: 12)
             .environment(\.claudeClearGlass, settings.preferClearGlass)
             .onReceive(clockTimer) { value in now = value }
         } else {
-            VStack(alignment: .leading, spacing: 12) {
+            TrackerMenuStack {
                 header
                 if let update = appState.availableUpdate {
-                    updateBanner(update)
-                        .trackerMenuCardLayout()
-                        .glassPanel()
+                    menuCard { updateBanner(update) }
                 }
-                usageSection
-                    .trackerMenuCardLayout()
-                    .glassPanel()
-                serviceStatusSection
-                    .trackerMenuCardLayout()
-                    .glassPanel()
+                menuCard { usageSection }
+                menuCard { serviceStatusSection }
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
-                    countdownSection
-                        .trackerMenuCardLayout()
-                        .glassPanel()
+                    menuCard { countdownSection }
                 }
                 actionsSection
             }
-            .claudeGlassContainer(spacing: 12)
             .environment(\.claudeClearGlass, settings.preferClearGlass)
             .padding(16)
             .frame(width: 320)
             .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
             .onReceive(clockTimer) { value in now = value }
         }
+    }
+
+    private func menuCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        TrackerMenuCard(clearGlass: settings.preferClearGlass, content: content)
     }
 
     private var header: some View {
@@ -182,27 +168,15 @@ struct MenuBarContentView: View {
     }
 
     private func usageRow(title: String, percent: Int?, resetText: String?, missingText: String = "No data yet") -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(ClaudeTheme.textPrimary)
-                Spacer()
-                Text(percent.map { "\($0)%" } ?? "--")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundColor(usageBarColor(percent: percent))
-            }
-            UsageBar(percent: percent, color: usageBarColor(percent: percent))
-            if let resetText {
-                Text(resetText)
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-            } else if percent == nil {
-                Text(missingText)
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textSecondary)
-            }
-        }
+        TrackerMenuUsageRow(
+            title: title,
+            value: percent.map { "\($0)%" } ?? "--",
+            percent: percent,
+            detail: resetText,
+            missingDetail: missingText,
+            valueColor: usageBarColor(percent: percent),
+            clearGlass: settings.preferClearGlass
+        )
     }
 
     private func usageBarColor(percent: Int?) -> Color {
@@ -213,28 +187,16 @@ struct MenuBarContentView: View {
     }
 
     private var serviceStatusRow: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(serviceStatusColor)
-                    .frame(width: 7, height: 7)
-                Text(appState.serviceStatus?.message ?? "Checking Claude service status\u{2026}")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(ClaudeTheme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Text(serviceStatusDetail)
-                .font(.system(size: 10))
-                .foregroundColor(ClaudeTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+        TrackerMenuServiceStatus(
+            message: appState.serviceStatus?.message ?? "Checking Claude service status\u{2026}",
+            detail: serviceStatusDetail,
+            statusColor: serviceStatusColor,
+            help: "Open Claude Status"
+        ) {
             if let url = URL(string: "https://status.claude.com") {
                 NSWorkspace.shared.open(url)
             }
         }
-        .help("Open Claude Status")
     }
 
     private var serviceStatusColor: Color {
@@ -284,26 +246,17 @@ struct MenuBarContentView: View {
     }
 
     private var countdownSection: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                SectionHeader(text: primaryCountdownTitle)
-                Text(primaryCountdownText)
-                    .font(.system(size: 28, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundColor(ClaudeTheme.textPrimary)
-                if let secondaryText = secondaryCountdownText {
-                    Text(secondaryText)
-                        .font(.system(size: 10))
-                        .foregroundColor(ClaudeTheme.textSecondary.opacity(0.8))
-                }
-            }
-            Spacer(minLength: 4)
+        TrackerMenuSessionCard(
+            title: primaryCountdownTitle,
+            countdown: primaryCountdownText,
+            secondary: secondaryCountdownText
+        ) {
             Button(appState.status == .sending ? "Sending\u{2026}" : "Ping now") {
                 appState.pingNow()
             }
             .claudePrimaryButton()
             .disabled(appState.status == .sending)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var nextPossibleSessionDate: Date? {

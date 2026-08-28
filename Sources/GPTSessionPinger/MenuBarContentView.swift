@@ -28,20 +28,19 @@ struct MenuBarContentView: View {
     @ViewBuilder
     var body: some View {
         if let embeddedTab {
-            VStack(alignment: .leading, spacing: 12) {
+            TrackerMenuStack {
                 if let update = appState.availableUpdate {
-                    updateBanner(update).trackerMenuCard()
+                    menuCard { updateBanner(update) }
                 }
                 tabContent(embeddedTab)
             }
-            .gptGlassContainer(spacing: 12)
             .environment(\.gptClearGlass, settings.preferClearGlass)
             .onReceive(clockTimer) { now = $0 }
         } else {
-            VStack(alignment: .leading, spacing: 12) {
+            TrackerMenuStack {
                 header
                 if let update = appState.availableUpdate {
-                    updateBanner(update).trackerMenuCard()
+                    menuCard { updateBanner(update) }
                 }
                 if settings.showCategoryTabs {
                     usageTabs
@@ -49,13 +48,16 @@ struct MenuBarContentView: View {
                 usageContent
                 actionsSection
             }
-            .gptGlassContainer(spacing: 12)
             .environment(\.gptClearGlass, settings.preferClearGlass)
             .padding(16)
             .frame(width: 340)
             .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
             .onReceive(clockTimer) { now = $0 }
         }
+    }
+
+    private func menuCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        TrackerMenuCard(clearGlass: settings.preferClearGlass, content: content)
     }
 
     private var header: some View {
@@ -107,69 +109,53 @@ struct MenuBarContentView: View {
     @ViewBuilder
     private func tabContent(_ tab: UsageDisplayTab) -> some View {
         let tracks = visibleTracks.filter { tab == .codex ? $0.isCodexTrack : !$0.isCodexTrack }
-        VStack(alignment: .leading, spacing: 12) {
-            if tab == .chatGPT {
-                chatGPTUsageCard(tracks: tracks).trackerMenuCard()
-            } else {
-                usageCard(title: "Codex usage", tracks: tracks).trackerMenuCard()
-            }
-            serviceStatus(for: tab).trackerMenuCard()
-            if tab == .codex {
-                codexSessionPingerCard(tracks: tracks).trackerMenuCard()
-            }
-            if let reset = primaryResetDate(for: tracks) {
-                resetCountdown(reset).trackerMenuCard()
-            }
-            if tab == .codex, settings.showHistoryChart, let weekly = visibleWeeklyTrack {
-                historyChart(for: weekly).trackerMenuCard()
-            }
+        if tab == .chatGPT {
+            menuCard { chatGPTUsageCard(tracks: tracks) }
+        } else {
+            menuCard { usageCard(title: "Codex usage", tracks: tracks) }
+        }
+        menuCard { serviceStatus(for: tab) }
+        if embeddedTab != nil, tab == .codex,
+           codexSessionPinger.showNextPossibleCountdown || codexSessionPinger.showScheduledCountdown {
+            menuCard { codexSessionPingerCard(tracks: tracks) }
+        }
+        if let reset = primaryResetDate(for: tracks) {
+            menuCard { resetCountdown(reset) }
+        }
+        if tab == .codex, settings.showHistoryChart, let weekly = visibleWeeklyTrack {
+            menuCard { historyChart(for: weekly) }
         }
     }
 
     private func codexSessionPingerCard(tracks: [GPTUsageTrack]) -> some View {
         let next = codexSessionPinger.nextPossibleSessionDate(resetDate: codexSessionResetDate(for: tracks))
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                SectionHeader(text: "Codex session pinger")
-                Spacer()
-                Button(codexSessionPinger.isPinging ? "Pinging…" : "Ping now") {
-                    codexSessionPinger.pingNow()
-                }
-                .gptPrimaryButton()
-                .disabled(codexSessionPinger.isPinging || !settings.isConfigured)
+        return TrackerMenuSessionCard(
+            title: codexPrimaryCountdownTitle,
+            countdown: codexPrimaryCountdownText(nextPossible: next),
+            secondary: codexSecondaryCountdownText(nextPossible: next),
+            status: codexSessionPinger.status,
+            statusColor: codexStatusColor
+        ) {
+            Button(codexSessionPinger.isPinging ? "Pinging…" : "Ping now") {
+                codexSessionPinger.pingNow()
             }
-            Text("Next possible session in")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(GPTTheme.textPrimary)
-            Text(countdownText(until: next))
-                .font(.system(size: 26, weight: .medium, design: .rounded).monospacedDigit())
-                .foregroundColor(GPTTheme.textPrimary)
-            if let scheduled = codexSessionPinger.nextFireDate {
-                Text("Scheduled ping in \(countdownText(until: scheduled)) · \(scheduled.formatted(date: .omitted, time: .shortened))")
-                    .font(.system(size: 10))
-                    .foregroundColor(GPTTheme.textSecondary)
-            }
-            if let status = codexSessionPinger.status {
-                Text(status)
-                    .font(.system(size: 10))
-                    .foregroundColor(status.contains("failed") || status.contains("expired") ? .red : GPTTheme.textSecondary)
-            }
+            .gptPrimaryButton()
+            .disabled(codexSessionPinger.isPinging || !settings.isConfigured)
         }
     }
 
+    @ViewBuilder
     private var combinedContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            let codex = visibleTracks.filter(\.isCodexTrack)
-            usageCard(title: "Codex usage", tracks: codex).trackerMenuCard()
-            let chatGPT = visibleTracks.filter { !$0.isCodexTrack }
-            chatGPTUsageCard(tracks: chatGPT).trackerMenuCard()
-            serviceStatus(for: .chatGPT).trackerMenuCard()
-            if let reset = primaryResetDate(for: visibleTracks) {
-                resetCountdown(reset).trackerMenuCard()
-            }
-            if settings.showHistoryChart, let weekly = visibleWeeklyTrack {
-                historyChart(for: weekly).trackerMenuCard()
-            }
+        let codex = visibleTracks.filter(\.isCodexTrack)
+        menuCard { usageCard(title: "Codex usage", tracks: codex) }
+        let chatGPT = visibleTracks.filter { !$0.isCodexTrack }
+        menuCard { chatGPTUsageCard(tracks: chatGPT) }
+        menuCard { serviceStatus(for: .chatGPT) }
+        if let reset = primaryResetDate(for: visibleTracks) {
+            menuCard { resetCountdown(reset) }
+        }
+        if settings.showHistoryChart, let weekly = visibleWeeklyTrack {
+            menuCard { historyChart(for: weekly) }
         }
     }
 
@@ -229,23 +215,15 @@ struct MenuBarContentView: View {
     }
 
     private func usageRow(_ track: GPTUsageTrack) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(track.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(GPTTheme.textPrimary)
-                Spacer()
-                Text(trackValue(track))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundColor(track.isBlocked ? .red : usageColor(track.usedPercent))
-            }
-            if track.usedPercent != nil {
-                UsageBar(percent: track.usedPercent, color: usageColor(track.usedPercent))
-            }
-            if let detail = usageDetail(track) {
-                Text(detail).font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-            }
-        }
+        TrackerMenuUsageRow(
+            title: track.title,
+            value: trackValue(track),
+            percent: track.usedPercent,
+            detail: usageDetail(track),
+            valueColor: track.isBlocked ? .red : usageColor(track.usedPercent),
+            clearGlass: settings.preferClearGlass,
+            showsBar: track.usedPercent != nil
+        )
     }
 
     private func trackValue(_ track: GPTUsageTrack) -> String {
@@ -313,23 +291,61 @@ struct MenuBarContentView: View {
     }
 
     private func serviceStatus(for tab: UsageDisplayTab) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Circle().fill(serviceStatusColor).frame(width: 7, height: 7)
-                Text(appState.serviceStatus?.message ?? "Checking OpenAI status…")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(GPTTheme.textPrimary)
-                Spacer()
-            }
-            Text(serviceStatusDetail(for: tab))
-                .font(.system(size: 10))
-                .foregroundColor(GPTTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+        TrackerMenuServiceStatus(
+            message: appState.serviceStatus?.message ?? "Checking OpenAI status…",
+            detail: serviceStatusDetail(for: tab),
+            statusColor: serviceStatusColor,
+            help: "Open OpenAI Status"
+        ) {
             if let url = URL(string: "https://status.openai.com") { NSWorkspace.shared.open(url) }
         }
+    }
+
+    private var codexEffectiveCountdownFocus: CodexSessionPinger.CountdownFocus {
+        if codexSessionPinger.showNextPossibleCountdown && codexSessionPinger.showScheduledCountdown {
+            return codexSessionPinger.countdownFocus
+        }
+        return codexSessionPinger.showScheduledCountdown ? .scheduled : .nextPossible
+    }
+
+    private var codexPrimaryCountdownTitle: String {
+        codexEffectiveCountdownFocus == .nextPossible
+            ? "Next possible session in"
+            : "Next scheduled session in"
+    }
+
+    private func codexPrimaryCountdownText(nextPossible: Date) -> String {
+        let date = codexEffectiveCountdownFocus == .nextPossible
+            ? nextPossible
+            : codexSessionPinger.nextFireDate
+        guard let date else { return "Now" }
+        return date.timeIntervalSince(now) <= 1 ? "Now" : sessionDurationText(until: date)
+    }
+
+    private func codexSecondaryCountdownText(nextPossible: Date) -> String? {
+        if codexEffectiveCountdownFocus == .nextPossible,
+           codexSessionPinger.showScheduledCountdown,
+           let scheduled = codexSessionPinger.nextFireDate {
+            return "Scheduled session in \(sessionDurationText(until: scheduled)) · \(scheduled.formatted(date: .omitted, time: .shortened))"
+        }
+        if codexEffectiveCountdownFocus == .scheduled,
+           codexSessionPinger.showNextPossibleCountdown {
+            return "Next possible session in \(sessionDurationText(until: nextPossible)) · \(nextPossible.formatted(date: .omitted, time: .shortened))"
+        }
+        return nil
+    }
+
+    private func sessionDurationText(until date: Date) -> String {
+        let remaining = max(0, date.timeIntervalSince(now))
+        let hours = Int(remaining) / 3_600
+        let minutes = (Int(remaining) % 3_600) / 60
+        let seconds = Int(remaining) % 60
+        return hours > 0 ? String(format: "%dh %02dm", hours, minutes) : String(format: "%dm %02ds", minutes, seconds)
+    }
+
+    private var codexStatusColor: Color {
+        let text = codexSessionPinger.status?.lowercased() ?? ""
+        return text.contains("failed") || text.contains("expired") || text.contains("error") ? .red : GPTTheme.textSecondary
     }
 
     private var refreshRow: some View {
@@ -447,12 +463,5 @@ struct MenuBarContentView: View {
             Spacer()
             Button("Quit") { NSApp.terminate(nil) }.gptGhostButton()
         }
-    }
-}
-
-private extension View {
-    func trackerMenuCard() -> some View {
-        trackerMenuCardLayout()
-            .glassPanel()
     }
 }

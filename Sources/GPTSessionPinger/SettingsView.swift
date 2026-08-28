@@ -43,6 +43,8 @@ struct SettingsView: View {
     @State private var pingModel = "gpt-5.4-mini"
     @State private var pingReasoningEffort = "low"
     @State private var pingMessage = "Say 1"
+    @State private var isTestingConnection = false
+    @State private var connectionTestResult: String?
 
     init(
         topLeadingInset: CGFloat = 0,
@@ -106,6 +108,9 @@ struct SettingsView: View {
                 settingsCard { activitySection }
             case .usage:
                 settingsCard { trackedUsageSection }
+                if combinedMode && settingsScope == .codex {
+                    settingsCard { codexSessionDisplaySection }
+                }
                 settingsCard { usageDisplaySection }
                 settingsCard { usageExplanationSection }
             case .alerts:
@@ -287,19 +292,70 @@ struct SettingsView: View {
     private var codexSessionActivitySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Activity")
+            HStack {
+                fieldLabel("Success rate")
+                Spacer()
+                Text(codexSessionPinger.successRateText)
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
+                    .foregroundColor(GPTTheme.textPrimary)
+            }
+            HStack(alignment: .firstTextBaseline) {
+                fieldLabel("Last result")
+                Spacer()
+                Text(codexSessionPinger.lastResultText)
+                    .font(.system(size: 11))
+                    .foregroundColor(GPTTheme.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
+            }
+            if let activeModel = codexSessionPinger.activeModel {
+                Text("Last successful model: \(activeModel)")
+                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            }
             Text(codexSessionPinger.conversationID.isEmpty
                 ? "The first Codex ping will create one dedicated chat and reuse it afterward."
                 : "Codex pings are reusing one dedicated chat.")
                 .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
-            HStack {
-                Button(codexSessionPinger.isPinging ? "Pinging…" : "Ping now") { codexSessionPinger.pingNow() }
-                    .gptPrimaryButton().disabled(codexSessionPinger.isPinging || !settings.isConfigured)
-                Spacer()
-                Button("Start fresh chat") { codexSessionPinger.startFreshChat() }.gptGhostButton()
+            if !codexSessionPinger.conversationID.isEmpty {
+                HStack {
+                    Button("Open pinger chat") {
+                        if let url = codexSessionPinger.conversationURL { NSWorkspace.shared.open(url) }
+                    }
+                    .gptGhostButton()
+                    Spacer()
+                    Button("Start fresh chat") { codexSessionPinger.startFreshChat() }.gptGhostButton()
+                }
             }
             if let status = codexSessionPinger.status {
                 Text(status).font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
+        }
+    }
+
+    private var codexSessionDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(text: "Session display")
+            toggleRow("Next possible session", isOn: $codexSessionPinger.showNextPossibleCountdown)
+            toggleRow("Scheduled session", isOn: $codexSessionPinger.showScheduledCountdown)
+            if codexSessionPinger.showNextPossibleCountdown && codexSessionPinger.showScheduledCountdown {
+                VStack(alignment: .leading, spacing: 6) {
+                    fieldLabel("Main focus")
+                    Picker("Main focus", selection: $codexSessionPinger.countdownFocus) {
+                        ForEach(CodexSessionPinger.CountdownFocus.allCases) { focus in
+                            Text(focus.label).tag(focus)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .tint(GPTTheme.accent)
+                    Text("The other enabled countdown appears underneath in gray.")
+                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                }
+            }
+            toggleRow("Start sessions when available", isOn: $codexSessionPinger.autoStartAvailableSessions)
+            Text("Off by default. Starts an available Codex session unless the next scheduled ping is within five hours. A successful ping prevents another start for five hours.")
+                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
     }
 
@@ -454,7 +510,9 @@ struct SettingsView: View {
     private var codexPingAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Ping alerts")
-            toggleRow("Scheduled ping failures", isOn: $codexSessionPinger.notifyOnFailure)
+            toggleRow("Ping failures", isOn: $codexSessionPinger.notifyOnFailure)
+            toggleRow("New session available", isOn: $codexSessionPinger.notifySessionAvailable)
+            toggleRow("Session started by app", isOn: $codexSessionPinger.notifySessionStarted)
             toggleRow("Scheduled ping sent", isOn: $codexSessionPinger.notifyOnSuccess)
         }
     }
@@ -476,6 +534,34 @@ struct SettingsView: View {
             SectionHeader(text: "App")
             toggleRow("Launch at login", isOn: $launchAtLogin)
             toggleRow("Command-I opens the tracker", isOn: $enableCommandIShortcut)
+            if combinedMode && settingsScope == .codex {
+                toggleRow("Wake Mac for scheduled pings", isOn: $codexSessionPinger.enableScheduledWake)
+                if codexSessionPinger.enableScheduledWake {
+                    Text(codexSessionPinger.wakeSupportStatus)
+                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let result = codexSessionPinger.wakeTestResult {
+                        Label(result.message, systemImage: codexWakeResultSymbol(result.outcome))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(codexWakeResultColor(result.outcome))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !codexSessionPinger.wakeHelperInstalled {
+                        Button(codexSessionPinger.isInstallingWakeSupport ? "Installing…" : "Install wake support") {
+                            codexSessionPinger.installWakeSupport()
+                        }
+                        .gptPrimaryButton()
+                        .disabled(codexSessionPinger.isInstallingWakeSupport)
+                    } else {
+                        Button("Run 2-minute closed-lid test") {
+                            codexSessionPinger.testWakeSupport()
+                        }
+                        .gptGhostButton()
+                    }
+                    Text("Uses isolated Codex wake records, so changing Codex schedules never cancels Claude wake events. Keep the MacBook connected to power for closed-lid pings.")
+                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                }
+            }
             toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass)
             if settingsScope != .chatGPT {
                 HStack {
@@ -484,6 +570,22 @@ struct SettingsView: View {
                     Text("Local samples only").font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
                 }
             }
+        }
+    }
+
+    private func codexWakeResultSymbol(_ outcome: CodexWakeTestOutcome) -> String {
+        switch outcome {
+        case .pending: return "clock"
+        case .passed: return "checkmark.circle.fill"
+        case .failed: return "xmark.circle.fill"
+        }
+    }
+
+    private func codexWakeResultColor(_ outcome: CodexWakeTestOutcome) -> Color {
+        switch outcome {
+        case .pending: return GPTTheme.textSecondary
+        case .passed: return GPTTheme.accent
+        case .failed: return .orange
         }
     }
 
@@ -509,14 +611,42 @@ struct SettingsView: View {
     private var footer: some View {
         TrackerSettingsFooter(
             accent: GPTTheme.accent,
-            testTitle: appState.isRefreshingUsage ? "Testing…" : "Test connection",
-            testDisabled: appState.isRefreshingUsage,
-            onTest: {
-                Task { await appState.refreshUsage() }
-            },
+            testTitle: isTestingConnection || appState.isRefreshingUsage ? "Testing…" : "Test connection",
+            testDisabled: isTestingConnection || appState.isRefreshingUsage,
+            saveDisabled: combinedMode && settingsScope == .codex && codexSessionPinger.scheduleValidationMessage != nil,
+            onTest: runConnectionTest,
             onCancel: { appState.closeSettingsWindow?() },
             onSave: { save() }
-        ) { EmptyView() }
+        ) {
+            if let connectionTestResult {
+                Text(connectionTestResult)
+                    .font(.system(size: 10))
+                    .foregroundColor(connectionTestResult.lowercased().contains("sent") ? GPTTheme.accent : .red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func runConnectionTest() {
+        isTestingConnection = true
+        connectionTestResult = nil
+        if combinedMode && settingsScope == .codex {
+            Task {
+                let result = await codexSessionPinger.testConnection()
+                await MainActor.run {
+                    connectionTestResult = result
+                    isTestingConnection = false
+                }
+            }
+        } else {
+            Task {
+                await appState.refreshUsage()
+                await MainActor.run {
+                    connectionTestResult = appState.usageError ?? "Connection succeeded and usage refreshed."
+                    isTestingConnection = false
+                }
+            }
+        }
     }
 
     private var usageSettingRows: [UsageSettingRow] {

@@ -43,7 +43,7 @@ enum WakeSupportError: LocalizedError {
 /// who installed it. The helper accepts only fixed wake, cancel, and sleep
 /// operations and never executes caller-supplied shell commands.
 enum WakeSupport {
-    static let helperVersion = "2"
+    static let helperVersion = "3"
     static let helperName = "com.proxsyi.sessiontracker.wake-helper"
     static let installedHelperURL = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/\(helperName)")
     static let wakeLeadTime: TimeInterval = 5
@@ -137,7 +137,7 @@ enum WakeSupport {
         let previousWakeEpochs = defaults.array(forKey: scheduledWakeEpochsKey) as? [Double] ?? []
         if isInstalled {
             for epoch in previousWakeEpochs {
-                _ = try? runHelper(["cancel", timestampArgument(epoch)])
+                _ = try? runHelper(["cancel", "claude", timestampArgument(epoch)])
             }
         }
         defaults.removeObject(forKey: scheduledWakeEpochsKey)
@@ -154,12 +154,12 @@ enum WakeSupport {
         var scheduled: [Date] = []
         do {
             for pair in pairs {
-                try runHelper(["schedule", timestampArgument(pair.wake.timeIntervalSince1970)])
+                try runHelper(["schedule", "claude", timestampArgument(pair.wake.timeIntervalSince1970)])
                 scheduled.append(pair.wake)
             }
         } catch {
             for date in scheduled {
-                _ = try? runHelper(["cancel", timestampArgument(date.timeIntervalSince1970)])
+                _ = try? runHelper(["cancel", "claude", timestampArgument(date.timeIntervalSince1970)])
             }
             throw error
         }
@@ -174,10 +174,10 @@ enum WakeSupport {
         let defaults = UserDefaults.standard
         let previousEpoch = defaults.double(forKey: testWakeEpochKey)
         if previousEpoch > 0 {
-            _ = try? runHelper(["cancel", timestampArgument(previousEpoch)])
+            _ = try? runHelper(["cancel", "claude", timestampArgument(previousEpoch)])
         }
         let date = Date().addingTimeInterval(delay)
-        try runHelper(["schedule", timestampArgument(date.timeIntervalSince1970)])
+        try runHelper(["schedule", "claude", timestampArgument(date.timeIntervalSince1970)])
         defaults.set(date.timeIntervalSince1970, forKey: testWakeEpochKey)
         saveTestResult(
             outcome: .pending,

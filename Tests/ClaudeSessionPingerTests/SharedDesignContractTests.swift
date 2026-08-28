@@ -26,14 +26,81 @@ final class SharedDesignContractTests: XCTestCase {
         }
     }
 
-    func testProviderMenuCardsUseTheSharedLayout() throws {
+    func testProviderMenusUseTheSharedStackCardsRowsStatusAndSessionCard() throws {
         for relativePath in [
             "Sources/ClaudeSessionPinger/MenuBarContentView.swift",
             "Sources/GPTSessionPinger/MenuBarContentView.swift"
         ] {
             let source = try String(contentsOf: repositoryRoot.appendingPathComponent(relativePath))
-            XCTAssertTrue(source.contains("trackerMenuCardLayout()"), relativePath)
+            XCTAssertTrue(source.contains("TrackerMenuStack"), relativePath)
+            XCTAssertTrue(source.contains("TrackerMenuCard("), relativePath)
+            XCTAssertTrue(source.contains("TrackerMenuUsageRow("), relativePath)
+            XCTAssertTrue(source.contains("TrackerMenuServiceStatus("), relativePath)
+            XCTAssertTrue(source.contains("TrackerMenuSessionCard("), relativePath)
+            XCTAssertFalse(source.contains("trackerMenuCardLayout()"), relativePath)
         }
+    }
+
+    func testCodexPingerKeepsClaudeFeatureParityWithoutSharingProviderState() throws {
+        let pinger = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/CodexSessionPinger.swift"
+        ))
+        let settings = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/SettingsView.swift"
+        ))
+        let wake = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/CodexWakeSupport.swift"
+        ))
+
+        for feature in [
+            "conversationID", "parentMessageID", "PingRecord", "successRateText",
+            "autoStartAvailableSessions", "notifySessionAvailable", "notifySessionStarted",
+            "showNextPossibleCountdown", "showScheduledCountdown", "countdownFocus",
+            "installWakeSupport", "testWakeSupport"
+        ] {
+            XCTAssertTrue(pinger.contains(feature), feature)
+        }
+        XCTAssertTrue(settings.contains("Open pinger chat"))
+        XCTAssertTrue(settings.contains("Start fresh chat"))
+        XCTAssertTrue(settings.contains("Wake Mac for scheduled pings"))
+        XCTAssertTrue(wake.contains("codexWakeSupportScheduledWakeEpochs"))
+        XCTAssertFalse(wake.contains("wakeSupportScheduledWakeEpochs\""))
+    }
+
+    func testWakeHelperKeepsClaudeAndCodexPowerEventsIndependent() throws {
+        let helper = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/SessionPingerWakeHelper/main.c"
+        ))
+        let claudeWake = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/ClaudeSessionPinger/WakeSupport.swift"
+        ))
+        let codexWake = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/CodexWakeSupport.swift"
+        ))
+
+        XCTAssertTrue(helper.contains("#define HELPER_VERSION \"3\""))
+        XCTAssertTrue(helper.contains("com.proxsyi.sessiontracker.claude"))
+        XCTAssertTrue(helper.contains("com.proxsyi.sessiontracker.codex"))
+        XCTAssertTrue(claudeWake.contains("[\"schedule\", \"claude\""))
+        XCTAssertTrue(claudeWake.contains("[\"cancel\", \"claude\""))
+        XCTAssertTrue(codexWake.contains("[\"schedule\", \"codex\""))
+        XCTAssertTrue(codexWake.contains("[\"cancel\", \"codex\""))
+    }
+
+    func testStandaloneGPTAppCannotExposeOrStartCodexPinging() throws {
+        let app = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/App.swift"
+        ))
+        let feature = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/CombinedFeature.swift"
+        ))
+        let menu = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/MenuBarContentView.swift"
+        ))
+
+        XCTAssertTrue(app.contains("CodexSessionPinger(settings: settings)"))
+        XCTAssertTrue(feature.contains("hostAllowsPinging: true"))
+        XCTAssertTrue(menu.contains("if embeddedTab != nil, tab == .codex"))
     }
 
     func testGPTAlertThresholdsAreStoredAndReadPerCounter() throws {

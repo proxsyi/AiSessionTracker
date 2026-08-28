@@ -25,7 +25,7 @@ public final class GPTFeatureState: ObservableObject {
     let settings = SettingsStore()
     let history = UsageHistoryStore()
     lazy var appState = AppState(settings: settings, history: history, updatesEnabled: false)
-    lazy var codexSessionPinger = CodexSessionPinger(settings: settings)
+    lazy var codexSessionPinger = CodexSessionPinger(settings: settings, hostAllowsPinging: true)
     private var cancellables = Set<AnyCancellable>()
 
     public init() {
@@ -42,6 +42,9 @@ public final class GPTFeatureState: ObservableObject {
             .store(in: &cancellables)
         codexSessionPinger.objectWillChange
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        appState.$usage
+            .sink { [weak self] usage in self?.codexSessionPinger.updateUsage(usage) }
             .store(in: &cancellables)
     }
 
