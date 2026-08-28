@@ -35,76 +35,40 @@ enum ChatGPTClient {
     ) async throws -> ChatGPTPingOutcome {
         guard !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ChatGPTPingError.missingCredentials }
         let conversation = conversationID?.nilIfEmpty
-        let parent = parentMessageID?.nilIfEmpty ?? UUID().uuidString.lowercased()
-        let body = try makeRequestBody(
-            model: model,
-            reasoningEffort: reasoningEffort,
+        _ = auth
+        _ = parentMessageID
+        let browserResponse = try await ChatGPTBrowserTransport.shared.send(
             message: message,
             conversationID: conversation,
-            parentMessageID: parent
+            model: model,
+            reasoningEffort: reasoningEffort,
+            cookieHeader: cookieHeader,
+            timeout: timeout
         )
-        guard let requestBase = ChatGPTWebSession.makeBackendRequest(
-            path: "/conversation", method: "POST", auth: auth,
-            cookieHeader: cookieHeader, accept: "text/event-stream", body: body
-        ) else { throw ChatGPTPingError.serverError(0, "Invalid ChatGPT URL") }
-        var request = requestBase
-        request.timeoutInterval = timeout
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw ChatGPTPingError.serverError(0, "No HTTP response") }
-        guard (200...299).contains(http.statusCode) else {
-            if [401, 403].contains(http.statusCode) { throw ChatGPTPingError.sessionExpired }
-            if http.statusCode == 429 { throw ChatGPTPingError.rateLimited }
-            throw ChatGPTPingError.serverError(http.statusCode, String(data: data, encoding: .utf8) ?? "")
-        }
-        let parsed = parseStream(data)
-        guard !parsed.reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ChatGPTPingError.emptyReply }
-        return ChatGPTPingOutcome(conversationID: parsed.conversationID ?? conversation ?? UUID().uuidString.lowercased(), parentMessageID: parsed.messageID ?? parent, replyText: parsed.reply)
-    }
-
-    static func makeRequestBody(
-        model: String,
-        reasoningEffort: String,
-        message: String,
-        conversationID: String?,
-        parentMessageID: String
-    ) throws -> Data {
-        let payload: [String: Any] = [
-            "action": "next",
-            "messages": [[
-                "id": UUID().uuidString.lowercased(),
-                "author": ["role": "user"],
-                "content": ["content_type": "text", "parts": [message]],
-                "metadata": [:]
-            ]],
-            "model": model,
-            "parent_message_id": parentMessageID,
-            "conversation_id": conversationID ?? NSNull(),
-            // A pinger needs a normal cloud conversation so the returned
-            // conversation and parent IDs can be reused on the next ping.
-            // Temporary/history-disabled chats do not provide that durable
-            // shared-chat behavior.
-            "history_and_training_disabled": false,
-            "timezone_offset_min": TimeZone.current.secondsFromGMT() / -60,
-            "suggestions": [],
-            "temporary": false,
-            "reasoning_effort": reasoningEffort
-        ]
-        return try JSONSerialization.data(withJSONObject: payload)
-    }
-
-    private static func parseStream(_ data: Data) -> (reply: String, conversationID: String?, messageID: String?) {
-        guard let text = String(data: data, encoding: .utf8) else { return ("", nil, nil) }
-        var reply = "", conversationID: String?, messageID: String?
-        for line in text.split(whereSeparator: \.isNewline) where line.hasPrefix("data:") {
-            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
-            guard payload != "[DONE]", let json = payload.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { continue }
-            conversationID = (object["conversation_id"] as? String) ?? conversationID
-            if let message = object["message"] as? [String: Any] {
-                messageID = (message["id"] as? String) ?? messageID
-                if let content = message["content"] as? [String: Any], let parts = content["parts"] as? [String], let last = parts.last { reply = last }
+        let statusCode = browserResponse.statusCode
+        let data = browserResponse.body
+        guard (200...299).contains(statusCode) else {
+            if [401, 403].contains(statusCode) {
+                let bodyPrefix = String(data: data.prefix(240), encoding: .utf8) ?? ""
+                throw ChatGPTPingError.serverError(
+                    statusCode,
+                    "browserType=\(browserResponse.contentType) bodyPrefix=\(bodyPrefix)"
+                )
             }
+            if statusCode == 429 { throw ChatGPTPingError.rateLimited }
+            if statusCode == 504 { throw ChatGPTPingError.emptyReply }
+            throw ChatGPTPingError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-        return (reply, conversationID, messageID)
+        guard let browserConversationID = browserResponse.conversationID,
+              let browserReply = browserResponse.replyText,
+              !browserReply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ChatGPTPingError.emptyReply
+        }
+        return ChatGPTPingOutcome(
+            conversationID: browserConversationID,
+            parentMessageID: UUID().uuidString.lowercased(),
+            replyText: browserReply
+        )
     }
 }
 

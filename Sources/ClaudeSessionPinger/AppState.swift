@@ -306,6 +306,7 @@ final class AppState: ObservableObject {
     }
 
     func refreshWakeTestResult() {
+        wakeHelperInstalled = WakeSupport.isInstalled
         wakeTestResult = WakeSupport.lastTestResult
     }
 

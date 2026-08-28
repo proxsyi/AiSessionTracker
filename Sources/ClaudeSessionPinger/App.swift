@@ -55,6 +55,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ProcessInfo.processInfo.arguments.contains("--show-menu-window-for-testing") {
             showMenuTestWindow()
         }
+        if ProcessInfo.processInfo.arguments.contains("--show-settings-window-for-testing") {
+            NSApp.setActivationPolicy(.regular)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.settingsWindowController?.show()
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("--show-popover-for-testing") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 self?.appState.requestTogglePopoverFromShortcut?()

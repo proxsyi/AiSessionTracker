@@ -87,6 +87,36 @@ final class SharedDesignContractTests: XCTestCase {
         XCTAssertTrue(codexWake.contains("[\"cancel\", \"codex\""))
     }
 
+    func testCombinedSettingsKeepProviderNavigationMountedAndCentralizeWakeSetup() throws {
+        let combined = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/ClaudeSessionPinger/CombinedViews.swift"
+        ))
+        let claudeSettings = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/ClaudeSessionPinger/SettingsView.swift"
+        ))
+        let gptSettings = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/SettingsView.swift"
+        ))
+
+        XCTAssertTrue(combined.contains("case system = \"System\""))
+        XCTAssertTrue(combined.contains("settingsLayer(isActive:"))
+        XCTAssertTrue(combined.contains("Ready for Claude and Codex"))
+        XCTAssertTrue(combined.contains("Install wake support"))
+        XCTAssertTrue(claudeSettings.contains("Set up in System"))
+        XCTAssertTrue(gptSettings.contains("Set up in System"))
+        XCTAssertFalse(claudeSettings.contains("settingsCard { usageBehaviorSection }"))
+        XCTAssertFalse(gptSettings.contains("settingsCard { usageExplanationSection }"))
+    }
+
+    func testCombinedAppExposesOptInSettingsPreviewForAccessibilityVerification() throws {
+        let app = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/ClaudeSessionPinger/App.swift"
+        ))
+
+        XCTAssertTrue(app.contains("--show-settings-window-for-testing"))
+        XCTAssertTrue(app.contains("settingsWindowController?.show()"))
+    }
+
     func testStandaloneGPTAppCannotExposeOrStartCodexPinging() throws {
         let app = try String(contentsOf: repositoryRoot.appendingPathComponent(
             "Sources/GPTSessionPinger/App.swift"

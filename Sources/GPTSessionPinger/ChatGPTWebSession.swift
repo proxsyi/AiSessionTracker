@@ -23,12 +23,20 @@ enum ChatGPTWebSession {
         }
 
         let trimmed = savedCredential.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard looksLikeAccessToken(trimmed) else { throw UsageError.sessionExpired }
-        return ChatGPTAuthSession(
-            accessToken: trimmed,
-            accountID: accountID?.nilIfEmpty,
-            planType: planType(from: trimmed)
-        )
+        if looksLikeAccessToken(trimmed) {
+            return ChatGPTAuthSession(
+                accessToken: trimmed,
+                accountID: accountID?.nilIfEmpty,
+                planType: planType(from: trimmed)
+            )
+        }
+
+        if let browserSession = try? await ChatGPTBrowserTransport.shared.resolveAuth(
+            cookieHeader: cookieHeader
+        ) {
+            return browserSession
+        }
+        throw UsageError.sessionExpired
     }
 
     static func fetchAuthSession(cookieHeader: String) async -> ChatGPTAuthSession? {

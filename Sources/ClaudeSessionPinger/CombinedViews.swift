@@ -1,8 +1,18 @@
 import AppKit
 import GPTTrackerFeature
 import SwiftUI
+import TrackerDesignSystem
 
 enum CombinedServiceTab: String, CaseIterable, Identifiable {
+    case claude = "Claude"
+    case codex = "Codex"
+    case chatGPT = "ChatGPT"
+
+    var id: String { rawValue }
+}
+
+private enum CombinedSettingsSection: String, CaseIterable, Identifiable {
+    case system = "System"
     case claude = "Claude"
     case codex = "Codex"
     case chatGPT = "ChatGPT"
@@ -236,35 +246,53 @@ struct CombinedSettingsView: View {
     @EnvironmentObject private var selection: CombinedSelectionStore
     @ObservedObject var gptFeature: GPTFeatureState
     @State private var showingMenuBarSettings = false
+    @State private var selectedSection: CombinedSettingsSection = .claude
+    @State private var initializedSelection = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Group {
-                if selection.selectedTab == .claude {
-                    SettingsView(
-                        topLeadingInset: 0,
-                        saveOnDisappear: true,
-                        frameWidth: 500,
-                        frameHeight: 640,
-                        showsUpdateControls: false,
-                        serviceVisibility: $selection.claudeVisible,
-                        serviceDisplayName: "Claude"
-                    )
-                } else {
-                    GPTCombinedSettingsContent(
-                        feature: gptFeature,
-                        tab: selection.selectedTab == .codex ? .codex : .chatGPT,
-                        topLeadingInset: 0,
-                        serviceVisibility: selection.selectedTab == .codex ? $selection.codexVisible : $selection.chatGPTVisible
-                    )
-                }
+            ZStack {
+                systemSettings
+                    .settingsLayer(isActive: selectedSection == .system)
+
+                SettingsView(
+                    topLeadingInset: 0,
+                    saveOnDisappear: true,
+                    frameWidth: 500,
+                    frameHeight: 640,
+                    showsUpdateControls: false,
+                    serviceVisibility: $selection.claudeVisible,
+                    serviceDisplayName: "Claude",
+                    isActive: selectedSection == .claude,
+                    onOpenSystemSettings: { selectedSection = .system }
+                )
+                .settingsLayer(isActive: selectedSection == .claude)
+
+                GPTCombinedSettingsContent(
+                    feature: gptFeature,
+                    tab: .codex,
+                    topLeadingInset: 0,
+                    serviceVisibility: $selection.codexVisible,
+                    isActive: selectedSection == .codex,
+                    onOpenSystemSettings: { selectedSection = .system }
+                )
+                .settingsLayer(isActive: selectedSection == .codex)
+
+                GPTCombinedSettingsContent(
+                    feature: gptFeature,
+                    tab: .chatGPT,
+                    topLeadingInset: 0,
+                    serviceVisibility: $selection.chatGPTVisible,
+                    isActive: selectedSection == .chatGPT
+                )
+                .settingsLayer(isActive: selectedSection == .chatGPT)
             }
             .padding(.top, 52)
 
             HStack(spacing: 8) {
-                Picker("Settings service", selection: $selection.selectedTab) {
-                    ForEach(CombinedServiceTab.allCases) { tab in
-                        Text(tab.rawValue).tag(tab)
+                Picker("Settings service", selection: $selectedSection) {
+                    ForEach(CombinedSettingsSection.allCases) { section in
+                        Text(section.rawValue).tag(section)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -283,13 +311,106 @@ struct CombinedSettingsView: View {
         .frame(width: 500, height: 700)
         .background(WindowGlassBackground(clearGlass: true).ignoresSafeArea())
         .onAppear {
+            if !initializedSelection {
+                selectedSection = settingsSection(for: selection.selectedTab)
+                initializedSelection = true
+            }
             gptFeature.configureWindowActions(
                 close: { appState.closeSettingsWindow?() },
                 togglePopover: { appState.requestTogglePopover?() }
             )
+            refreshWakeSetupState()
+        }
+        .onChange(of: selectedSection) { section in
+            if let service = serviceTab(for: section) { selection.selectedTab = service }
+            refreshWakeSetupState()
+        }
+        .onChange(of: appState.isInstallingWakeSupport) { installing in
+            if !installing { refreshWakeSetupState() }
         }
         .sheet(isPresented: $showingMenuBarSettings) {
             menuBarSettingsSheet
+        }
+    }
+
+    private var systemSettings: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape.2")
+                Text("System setup")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+            }
+            .foregroundColor(ClaudeTheme.textPrimary)
+            .padding(.horizontal, 20)
+            .frame(height: 58)
+
+            Divider()
+
+            ScrollView {
+                TrackerSettingsCard(clearGlass: true) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SectionHeader(text: "Wake support")
+                        Label(
+                            appState.wakeHelperInstalled ? "Ready for Claude and Codex" : "Setup required",
+                            systemImage: appState.wakeHelperInstalled ? "checkmark.circle.fill" : "exclamationmark.circle"
+                        )
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(appState.wakeHelperInstalled ? ClaudeTheme.accent : .orange)
+
+                        if !appState.wakeHelperInstalled {
+                            Button(appState.isInstallingWakeSupport ? "Installing…" : "Install wake support") {
+                                appState.installWakeSupport()
+                            }
+                            .claudePrimaryButton()
+                            .disabled(appState.isInstallingWakeSupport)
+                            .help("Installs one restricted helper used by both Claude and Codex schedules. Each provider is enabled separately in its App settings.")
+                        }
+
+                        if appState.isInstallingWakeSupport {
+                            Text(appState.wakeSupportStatus)
+                                .font(.system(size: 10))
+                                .foregroundColor(ClaudeTheme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .scrollIndicators(.hidden)
+
+            Divider()
+            TrackerSettingsFooter(
+                accent: ClaudeTheme.accent,
+                testTitle: "Refresh status",
+                onTest: refreshWakeSetupState,
+                onCancel: { appState.closeSettingsWindow?() },
+                onSave: { appState.closeSettingsWindow?() }
+            ) { EmptyView() }
+        }
+        .frame(width: 500, height: 640)
+        .background(WindowGlassBackground(clearGlass: true).ignoresSafeArea())
+    }
+
+    private func refreshWakeSetupState() {
+        appState.refreshWakeTestResult()
+        gptFeature.refreshWakeSupportState()
+    }
+
+    private func settingsSection(for service: CombinedServiceTab) -> CombinedSettingsSection {
+        switch service {
+        case .claude: return .claude
+        case .codex: return .codex
+        case .chatGPT: return .chatGPT
+        }
+    }
+
+    private func serviceTab(for section: CombinedSettingsSection) -> CombinedServiceTab? {
+        switch section {
+        case .system: return nil
+        case .claude: return .claude
+        case .codex: return .codex
+        case .chatGPT: return .chatGPT
         }
     }
 
@@ -334,11 +455,7 @@ struct CombinedSettingsView: View {
             }
             .padding(16)
             .glassPanel()
-
-            Text("The icon and text use the selected real usage counters. If a selected counter is not reported by the account, that part stays hidden instead of being estimated. At least one icon or percentage remains enabled so the app is always reachable.")
-                .font(.system(size: 11))
-                .foregroundColor(ClaudeTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            .help("Uses only real account-reported counters. Unavailable counters stay hidden, and at least one menu-bar element remains enabled.")
         }
         .padding(20)
         .frame(width: 440)
@@ -355,5 +472,13 @@ struct CombinedSettingsView: View {
         guard !gptMenuBarMeterOptions.contains(where: { $0.id == selection.gptMeterSourceID }),
               let first = gptMenuBarMeterOptions.first else { return }
         selection.gptMeterSourceID = first.id
+    }
+}
+
+private extension View {
+    func settingsLayer(isActive: Bool) -> some View {
+        opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+            .accessibilityHidden(!isActive)
     }
 }

@@ -13,6 +13,8 @@ struct SettingsView: View {
     let showsUpdateControls: Bool
     let serviceVisibility: Binding<Bool>?
     let serviceDisplayName: String?
+    let isActive: Bool
+    let onOpenSystemSettings: (() -> Void)?
 
     @State private var sessionKeyInput = ""
     @State private var organizationID = ""
@@ -52,7 +54,9 @@ struct SettingsView: View {
         frameHeight: CGFloat = 600,
         showsUpdateControls: Bool = true,
         serviceVisibility: Binding<Bool>? = nil,
-        serviceDisplayName: String? = nil
+        serviceDisplayName: String? = nil,
+        isActive: Bool = true,
+        onOpenSystemSettings: (() -> Void)? = nil
     ) {
         self.topLeadingInset = topLeadingInset
         self.saveOnDisappear = saveOnDisappear
@@ -61,6 +65,8 @@ struct SettingsView: View {
         self.showsUpdateControls = showsUpdateControls
         self.serviceVisibility = serviceVisibility
         self.serviceDisplayName = serviceDisplayName
+        self.isActive = isActive
+        self.onOpenSystemSettings = onOpenSystemSettings
     }
 
     var body: some View {
@@ -79,13 +85,19 @@ struct SettingsView: View {
         .onAppear {
             loadCurrentValues()
             appState.refreshWakeTestResult()
-            appState.requestSaveAndCloseSettings = {
-                save(showPopoverAfterClose: true)
+            installSaveActionIfActive()
+        }
+        .onChange(of: isActive) { active in
+            if active {
+                loadCurrentValues()
+                installSaveActionIfActive()
+            } else if saveOnDisappear {
+                save(closeWindow: false)
             }
         }
         .onDisappear {
-            if saveOnDisappear { save(closeWindow: false) }
-            appState.requestSaveAndCloseSettings = nil
+            if saveOnDisappear && isActive { save(closeWindow: false) }
+            if isActive { appState.requestSaveAndCloseSettings = nil }
         }
         .sheet(isPresented: $showingLogin) {
             CookieLoginSheet { sessionKey, organizationIDFromCookie, cookieHeader in
@@ -95,6 +107,13 @@ struct SettingsView: View {
                     cookieHeader: cookieHeader
                 )
             }
+        }
+    }
+
+    private func installSaveActionIfActive() {
+        guard isActive else { return }
+        appState.requestSaveAndCloseSettings = {
+            save(showPopoverAfterClose: true)
         }
     }
 
@@ -110,7 +129,6 @@ struct SettingsView: View {
             case .usage:
                 settingsCard { trackedUsageSection }
                 settingsCard { sessionDisplaySection }
-                settingsCard { usageBehaviorSection }
             case .alerts:
                 settingsCard { usageAlertsSection }
                 settingsCard { pingAlertsSection }
@@ -132,10 +150,11 @@ struct SettingsView: View {
     @ViewBuilder
     private var serviceVisibilityRow: some View {
         if let serviceVisibility, let serviceDisplayName {
-            toggleRow("Show \(serviceDisplayName) dashboard", isOn: serviceVisibility)
-            Text("Hiding it removes its dashboard and menu-bar meter. You can turn it back on from the service selector above.")
-                .font(.system(size: 10))
-                .foregroundColor(ClaudeTheme.textSecondary)
+            toggleRow(
+                "Show \(serviceDisplayName) dashboard",
+                isOn: serviceVisibility,
+                help: "Also controls this provider's menu-bar meter."
+            )
         }
     }
 
@@ -144,8 +163,14 @@ struct SettingsView: View {
     /// A clean settings row: label on the left, a small switch pinned to the
     /// right edge, like System Settings. The explicit accessibility label
     /// keeps VoiceOver working despite `labelsHidden()`.
-    private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
-        TrackerSettingsToggleRow(title, isOn: isOn, accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
+    private func toggleRow(_ title: String, isOn: Binding<Bool>, help: String? = nil) -> some View {
+        TrackerSettingsToggleRow(
+            title,
+            isOn: isOn,
+            accent: ClaudeTheme.accent,
+            clearGlass: preferClearGlass,
+            helpText: help
+        )
     }
 
     private func fieldLabel(_ text: String) -> some View {
@@ -178,10 +203,11 @@ struct SettingsView: View {
             if isFetchingOrganization {
                 caption("Detecting your organization ID\u{2026}")
             } else if loginCaptured && organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Couldn't detect your organization ID automatically. Open claude.ai in a browser, open Dev Tools \u{2192} Application \u{2192} Cookies, and paste the value of \"lastActiveOrg\" under Keys below.")
+                Text("Organization ID not detected. Add lastActiveOrg under Keys.")
                     .font(.system(size: 11))
                     .foregroundColor(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                    .help("Open claude.ai, then use Developer Tools → Application → Cookies and paste lastActiveOrg under Keys.")
             }
 
             keysDisclosure
@@ -193,7 +219,6 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Menu display")
             serviceVisibilityRow
-            caption("Dashboard visibility, individual usage counters, countdowns, and the combined menu-bar meter are configured independently.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -224,11 +249,14 @@ struct SettingsView: View {
                     SecureField(settings.sessionKey.isEmpty ? "Paste sessionKey cookie" : settings.maskedSessionKey, text: $sessionKeyInput)
                         .textFieldStyle(.plain)
                         .claudeGlassField()
-                    caption("Only needed if the built-in login doesn't work for your account.")
+                        .help("Only needed when the built-in login cannot capture this account.")
                 }
-                caption(settings.cookieHeader.isEmpty
-                    ? "No login cookies captured yet -- use Log in with Claude above."
-                    : "Full login cookies captured and stored in the keychain.")
+                Label(
+                    settings.cookieHeader.isEmpty ? "Cookies not stored" : "Cookies stored",
+                    systemImage: settings.cookieHeader.isEmpty ? "xmark.circle" : "checkmark.circle.fill"
+                )
+                .font(.system(size: 10))
+                .help("Claude login cookies are stored in this app's Keychain item.")
             }
             .padding(.top, 8)
             .transition(.opacity.combined(with: .move(edge: .top)))
@@ -253,7 +281,7 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .tint(ClaudeTheme.accent)
-                caption("Your choice is tried first. If Claude rejects it, the app falls back to another available model.")
+                .help("Tries your selected model first, then falls back if Claude rejects it.")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -306,9 +334,10 @@ struct SettingsView: View {
                         .foregroundColor(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    caption("Every session must be at least 5 hours from the sessions before and after it, including overnight.")
+                    EmptyView()
                 }
             }
+            .help("Scheduled pings must be at least five hours apart, including overnight.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -401,9 +430,8 @@ struct SettingsView: View {
     private var trackedUsageSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Tracked usage")
-            caption("Choose the Claude counters that appear in the dashboard. Each counter keeps its own reset window and alerts.")
-            toggleRow("Session (5 hour)", isOn: $showSessionBar)
-            toggleRow("Weekly (7 day)", isOn: $showWeeklyBar)
+            toggleRow("Session (5 hour)", isOn: $showSessionBar, help: "Show Claude's rolling five-hour usage counter.")
+            toggleRow("Weekly (7 day)", isOn: $showWeeklyBar, help: "Show Claude's weekly usage counter.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -411,8 +439,8 @@ struct SettingsView: View {
     private var sessionDisplaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Session display")
-            toggleRow("Next possible session", isOn: $showNextPossibleCountdown)
-            toggleRow("Scheduled session", isOn: $showScheduledCountdown)
+            toggleRow("Next possible session", isOn: $showNextPossibleCountdown, help: "Show when Claude's active five-hour window resets.")
+            toggleRow("Scheduled session", isOn: $showScheduledCountdown, help: "Show the next saved ping time.")
             if showNextPossibleCountdown && showScheduledCountdown {
                 VStack(alignment: .leading, spacing: 6) {
                     fieldLabel("Main focus")
@@ -425,22 +453,14 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .tint(ClaudeTheme.accent)
-                    caption("The other enabled countdown appears underneath in gray.")
+                    .help("The other enabled countdown appears underneath in gray.")
                 }
             }
-            toggleRow("Start sessions when available", isOn: $autoStartAvailableSessions)
-            caption("Off by default. Starts an available session immediately unless the next scheduled start is within five hours. A successful manual or automatic ping prevents another start for five hours.")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var usageBehaviorSection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            SectionHeader(text: "Tracking behavior")
-            Text("The tracker displays exactly what Claude reports and keeps the 5-hour and weekly windows separate.")
-                .font(.system(size: 11))
-                .foregroundColor(ClaudeTheme.textPrimary)
-            caption("Next-possible session timing is calculated from the active 5-hour reset and the last successful app ping; scheduled timing follows your saved schedule.")
+            toggleRow(
+                "Start sessions when available",
+                isOn: $autoStartAvailableSessions,
+                help: "Starts an available session unless a scheduled ping is due within five hours."
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -448,11 +468,10 @@ struct SettingsView: View {
     private var usageAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Usage alerts")
-            caption("Turn on exactly the Claude usage windows you want notifications for. The first refresh after launch is only a baseline.")
-            toggleRow("Session (5 hour)", isOn: thresholdEnabledBinding(selection: $sessionThresholds, defaults: SettingsStore.defaultSessionThresholds))
+            toggleRow("Session (5 hour)", isOn: thresholdEnabledBinding(selection: $sessionThresholds, defaults: SettingsStore.defaultSessionThresholds), help: "Notify when this counter crosses a selected threshold.")
             thresholdButtons(selection: $sessionThresholds)
                 .disabled(sessionThresholds.isEmpty)
-            toggleRow("Weekly (7 day)", isOn: thresholdEnabledBinding(selection: $weeklyThresholds, defaults: SettingsStore.defaultWeeklyThresholds))
+            toggleRow("Weekly (7 day)", isOn: thresholdEnabledBinding(selection: $weeklyThresholds, defaults: SettingsStore.defaultWeeklyThresholds), help: "Notify when this counter crosses a selected threshold.")
             thresholdButtons(selection: $weeklyThresholds)
                 .disabled(weeklyThresholds.isEmpty)
         }
@@ -524,9 +543,12 @@ struct SettingsView: View {
             SectionHeader(text: "App")
             toggleRow("Launch at login", isOn: $launchAtLogin)
             toggleRow("Command-U opens menu", isOn: $enableCommandUShortcut)
-            toggleRow("Wake Mac for scheduled pings", isOn: $enableScheduledWake)
+            toggleRow(
+                "Wake Mac for scheduled pings",
+                isOn: $enableScheduledWake,
+                help: "Uses the shared system helper. Claude and Codex keep separate schedules. Keep the Mac connected to power."
+            )
             if enableScheduledWake {
-                caption(appState.wakeSupportStatus)
                 if let result = appState.wakeTestResult {
                     Label(result.message, systemImage: wakeTestResultSymbol(result.outcome))
                         .font(.system(size: 11, weight: .medium))
@@ -535,11 +557,16 @@ struct SettingsView: View {
                 }
                 HStack(spacing: 8) {
                     if !appState.wakeHelperInstalled {
-                        Button(appState.isInstallingWakeSupport ? "Installing\u{2026}" : "Install wake support") {
-                            appState.installWakeSupport()
+                        if let onOpenSystemSettings {
+                            Button("Set up in System") { onOpenSystemSettings() }
+                                .claudeGhostButton()
+                        } else {
+                            Button(appState.isInstallingWakeSupport ? "Installing\u{2026}" : "Install wake support") {
+                                appState.installWakeSupport()
+                            }
+                            .claudePrimaryButton()
+                            .disabled(appState.isInstallingWakeSupport)
                         }
-                        .claudePrimaryButton()
-                        .disabled(appState.isInstallingWakeSupport)
                     } else {
                         Button("Run 2-minute closed-lid test") {
                             appState.testWakeSupport()
@@ -547,10 +574,11 @@ struct SettingsView: View {
                         .claudeGhostButton()
                     }
                 }
-                caption("Keep the MacBook connected to power. Session Pinger wakes it five seconds before a scheduled ping, then returns it to sleep after 30 seconds unless you're using it. The test exercises wake, ping, and return-to-sleep together.")
+                if !appState.wakeHelperInstalled {
+                    caption("Setup required")
+                }
             }
-            toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass)
-            caption("Clear changes the Settings background, cards, fields, rails, and idle controls immediately. System accessibility and appearance preferences still apply.")
+            toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass, help: "Changes Settings glass transparency immediately.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

@@ -77,6 +77,9 @@ public final class GPTFeatureState: ObservableObject {
 
     public var prefersClearGlass: Bool { settings.preferClearGlass }
     public var commandIEnabled: Bool { settings.enableCommandIShortcut }
+    public var wakeHelperInstalled: Bool { codexSessionPinger.wakeHelperInstalled }
+    public var wakeSupportStatus: String { codexSessionPinger.wakeSupportStatus }
+    public var isInstallingWakeSupport: Bool { codexSessionPinger.isInstallingWakeSupport }
 
     public func refreshIfStale() async {
         await appState.refreshUsageIfStale()
@@ -84,6 +87,10 @@ public final class GPTFeatureState: ObservableObject {
 
     public func refresh() async {
         await appState.refreshUsage()
+    }
+
+    public func refreshWakeSupportState() {
+        codexSessionPinger.refreshWakeSupportState()
     }
 
     public func configureWindowActions(
@@ -124,12 +131,23 @@ public struct GPTCombinedSettingsContent: View {
     private let topLeadingInset: CGFloat
     private let tab: GPTCombinedTab
     private let serviceVisibility: Binding<Bool>?
+    private let isActive: Bool
+    private let onOpenSystemSettings: (() -> Void)?
 
-    public init(feature: GPTFeatureState, tab: GPTCombinedTab, topLeadingInset: CGFloat, serviceVisibility: Binding<Bool>? = nil) {
+    public init(
+        feature: GPTFeatureState,
+        tab: GPTCombinedTab,
+        topLeadingInset: CGFloat,
+        serviceVisibility: Binding<Bool>? = nil,
+        isActive: Bool = true,
+        onOpenSystemSettings: (() -> Void)? = nil
+    ) {
         self.feature = feature
         self.tab = tab
         self.topLeadingInset = topLeadingInset
         self.serviceVisibility = serviceVisibility
+        self.isActive = isActive
+        self.onOpenSystemSettings = onOpenSystemSettings
     }
 
     public var body: some View {
@@ -139,7 +157,9 @@ public struct GPTCombinedSettingsContent: View {
             showsUpdateControls: false,
             combinedMode: true,
             settingsScope: tab == .codex ? .codex : .chatGPT,
-            serviceVisibility: serviceVisibility
+            serviceVisibility: serviceVisibility,
+            isActive: isActive,
+            onOpenSystemSettings: onOpenSystemSettings
         )
             .environmentObject(feature.settings)
             .environmentObject(feature.history)

@@ -23,6 +23,8 @@ struct SettingsView: View {
     let combinedMode: Bool
     let settingsScope: UsageDisplayTab?
     let serviceVisibility: Binding<Bool>?
+    let isActive: Bool
+    let onOpenSystemSettings: (() -> Void)?
 
     @State private var selectedTab: TrackerSettingsTab = .general
     @State private var showCategoryTabs = true
@@ -54,7 +56,9 @@ struct SettingsView: View {
         showsUpdateControls: Bool = true,
         combinedMode: Bool = false,
         settingsScope: UsageDisplayTab? = nil,
-        serviceVisibility: Binding<Bool>? = nil
+        serviceVisibility: Binding<Bool>? = nil,
+        isActive: Bool = true,
+        onOpenSystemSettings: (() -> Void)? = nil
     ) {
         self.topLeadingInset = topLeadingInset
         self.saveOnDisappear = saveOnDisappear
@@ -64,6 +68,8 @@ struct SettingsView: View {
         self.combinedMode = combinedMode
         self.settingsScope = settingsScope
         self.serviceVisibility = serviceVisibility
+        self.isActive = isActive
+        self.onOpenSystemSettings = onOpenSystemSettings
     }
 
     var body: some View {
@@ -81,15 +87,28 @@ struct SettingsView: View {
         .environment(\.gptClearGlass, preferClearGlass)
         .onAppear {
             loadCurrentValues()
-            appState.requestSaveAndCloseSettings = { save(showPopoverAfterClose: true) }
+            installSaveActionIfActive()
+        }
+        .onChange(of: isActive) { active in
+            if active {
+                loadCurrentValues()
+                installSaveActionIfActive()
+            } else if saveOnDisappear {
+                save(closeWindow: false)
+            }
         }
         .onDisappear {
-            if saveOnDisappear { save(closeWindow: false) }
-            appState.requestSaveAndCloseSettings = nil
+            if saveOnDisappear && isActive { save(closeWindow: false) }
+            if isActive { appState.requestSaveAndCloseSettings = nil }
         }
         .sheet(isPresented: $showingLogin) {
             CookieLoginSheet { capture in handleLoginCapture(capture) }
         }
+    }
+
+    private func installSaveActionIfActive() {
+        guard isActive else { return }
+        appState.requestSaveAndCloseSettings = { save(showPopoverAfterClose: true) }
     }
 
     @ViewBuilder
@@ -112,7 +131,6 @@ struct SettingsView: View {
                     settingsCard { codexSessionDisplaySection }
                 }
                 settingsCard { usageDisplaySection }
-                settingsCard { usageExplanationSection }
             case .alerts:
                 settingsCard { usageAlertsSection }
                 if combinedMode && settingsScope == .codex {
@@ -138,12 +156,11 @@ struct SettingsView: View {
             SectionHeader(text: "Account")
             if settings.isConfigured {
                 Button("Log in again") { showingLogin = true }.gptPrimaryButton()
-                Text("Using a previously captured session (\(settings.maskedSessionKey)). Plan: \(planName).")
+                Text("Connected · \(planName)")
                     .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
             } else {
-                Text("Sign in through the private in-app browser to read this account's usage counters.")
-                    .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
                 Button("Log in to ChatGPT") { showingLogin = true }.gptPrimaryButton()
+                    .help("Signs in through this app's private browser and stores the session in Keychain.")
             }
             Button { showKeys.toggle() } label: {
                 Label("Keys", systemImage: showKeys ? "chevron.down" : "chevron.right")
@@ -158,8 +175,7 @@ struct SettingsView: View {
                         Button(isClearingLogin ? "Clearing…" : "Log out") { clearLogin() }
                             .gptGhostButton()
                             .disabled(isClearingLogin)
-                        Text("Logging out clears this app's Keychain login and embedded-browser data. Safari and Claude Session Pinger are unaffected.")
-                            .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                            .help("Clears this app's Keychain login and embedded-browser data only.")
                     }
                 }
             }
@@ -170,24 +186,17 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 11) {
             SectionHeader(text: "Menu display")
             if let serviceVisibility, let settingsScope {
-                toggleRow("Show \(settingsScope.rawValue) dashboard", isOn: serviceVisibility)
-                Text("Hiding it removes its dashboard and menu-bar meter. You can turn it back on from the service selector above.")
-                    .font(.system(size: 10))
-                    .foregroundColor(GPTTheme.textSecondary)
+                toggleRow("Show \(settingsScope.rawValue) dashboard", isOn: serviceVisibility, help: "Also controls this provider's menu-bar meter.")
             }
             if !combinedMode {
                 toggleRow("Show Codex and ChatGPT tabs", isOn: $showCategoryTabs)
             }
-            Text(displayExplanation)
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
         }
     }
 
     private var pingSection: some View {
         VStack(alignment: .leading, spacing: 9) {
             SectionHeader(text: "Ping")
-            Text("Pings use one shared ChatGPT conversation and the signed-in browser session.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Model")
                 Picker("Model", selection: $pingModel) {
@@ -197,8 +206,7 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .tint(GPTTheme.accent)
-                Text("Uses the lowest supported reasoning effort for this model. The same model is used for every ping.")
-                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                .help("Uses this model for every ping in one shared ChatGPT conversation.")
             }
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Reasoning effort")
@@ -231,17 +239,14 @@ struct SettingsView: View {
     private var codexSessionPingerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Codex session pinger")
-            toggleRow("Schedule Codex pings", isOn: $codexSessionPinger.enabled)
-            Text("Pings use one dedicated Codex chat and the same signed-in ChatGPT session. A successful send reuses this chat on every future ping.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            toggleRow("Schedule Codex pings", isOn: $codexSessionPinger.enabled, help: "Uses one dedicated Codex chat and reuses it for every scheduled ping.")
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Model")
                 Picker("Model", selection: $codexSessionPinger.model) {
                     Text("GPT-5.4 mini (recommended) — gpt-5.4-mini").tag("gpt-5.4-mini")
                 }
                 .labelsHidden().pickerStyle(.menu).tint(GPTTheme.accent)
-                Text("The lowest-cost configured model is used with low reasoning effort.")
-                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                .help("Uses the lowest-cost configured model with the selected reasoning effort.")
             }
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Reasoning effort")
@@ -282,11 +287,9 @@ struct SettingsView: View {
             Button("Add time") { addCodexSlot() }.gptGhostButton()
             if let message = codexSessionPinger.scheduleValidationMessage {
                 Text(message).font(.system(size: 10)).foregroundColor(.red)
-            } else {
-                Text("Every scheduled Codex ping must be at least 5 hours from the ones before and after it, including overnight.")
-                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
         }
+        .help("Scheduled pings must be at least five hours apart, including overnight.")
     }
 
     private var codexSessionActivitySection: some View {
@@ -312,10 +315,7 @@ struct SettingsView: View {
                 Text("Last successful model: \(activeModel)")
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
-            Text(codexSessionPinger.conversationID.isEmpty
-                ? "The first Codex ping will create one dedicated chat and reuse it afterward."
-                : "Codex pings are reusing one dedicated chat.")
-                .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
+            detailRow("Chat", codexSessionPinger.conversationID.isEmpty ? "Created by first ping" : "Dedicated chat")
             if !codexSessionPinger.conversationID.isEmpty {
                 HStack {
                     Button("Open pinger chat") {
@@ -335,8 +335,8 @@ struct SettingsView: View {
     private var codexSessionDisplaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Session display")
-            toggleRow("Next possible session", isOn: $codexSessionPinger.showNextPossibleCountdown)
-            toggleRow("Scheduled session", isOn: $codexSessionPinger.showScheduledCountdown)
+            toggleRow("Next possible session", isOn: $codexSessionPinger.showNextPossibleCountdown, help: "Show the active Codex rolling-window reset.")
+            toggleRow("Scheduled session", isOn: $codexSessionPinger.showScheduledCountdown, help: "Show the next saved Codex ping time.")
             if codexSessionPinger.showNextPossibleCountdown && codexSessionPinger.showScheduledCountdown {
                 VStack(alignment: .leading, spacing: 6) {
                     fieldLabel("Main focus")
@@ -349,13 +349,10 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .tint(GPTTheme.accent)
-                    Text("The other enabled countdown appears underneath in gray.")
-                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                    .help("The other enabled countdown appears underneath in gray.")
                 }
             }
-            toggleRow("Start sessions when available", isOn: $codexSessionPinger.autoStartAvailableSessions)
-            Text("Off by default. Starts an available Codex session unless the next scheduled ping is within five hours. A successful ping prevents another start for five hours.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            toggleRow("Start sessions when available", isOn: $codexSessionPinger.autoStartAvailableSessions, help: "Starts an available session unless a scheduled ping is due within five hours.")
         }
     }
 
@@ -403,10 +400,7 @@ struct SettingsView: View {
     private var pingActivitySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Activity")
-            Text(settings.pingConversationID.isEmpty
-                ? "The next ping will create one dedicated ChatGPT chat and reuse it afterward."
-                : "Pings are reusing one dedicated ChatGPT chat.")
-                .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
+            detailRow("Chat", settings.pingConversationID.isEmpty ? "Created by first ping" : "Shared chat")
             HStack(alignment: .firstTextBaseline) {
                 fieldLabel("Last result")
                 Spacer()
@@ -441,18 +435,12 @@ struct SettingsView: View {
                     .foregroundColor(appState.usageError == nil ? GPTTheme.textPrimary : .red)
                     .multilineTextAlignment(.trailing)
             }
-            Text(appState.usage == nil
-                ? "Refresh usage after signing in to load this account's Codex counters."
-                : "Codex counters are read from the same signed-in ChatGPT account and refreshed every five minutes.")
-                .font(.system(size: 11)).foregroundColor(GPTTheme.textSecondary)
         }
     }
 
     private var trackedUsageSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(text: "Tracked usage")
-            Text("Every counter currently reported by this account can be hidden independently. Rolling windows remain separate from weekly, monthly, credit and remaining-task limits.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             groupTitle(settingsScope?.rawValue ?? "Codex and ChatGPT")
             if scopedUsageRows.isEmpty {
                 Text("No usage counters are currently reported for this section. Refresh usage after signing in to check again.")
@@ -469,32 +457,16 @@ struct SettingsView: View {
             if settingsScope != .chatGPT {
                 toggleRow("Show Codex weekly trend", isOn: $showHistoryChart)
             }
-            toggleRow("Automatically show newly discovered limits", isOn: $automaticallyShowNewUsageTracks)
-            Text("These controls affect only visible, account-reported counters. They do not change the limits themselves.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-        }
-    }
-
-    private var usageExplanationSection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            SectionHeader(text: "Tracking behavior")
-            Text("The tracker displays exactly what ChatGPT reports. It never invents a percentage or substitutes one window for another.")
-                .font(.system(size: 11)).foregroundColor(GPTTheme.textPrimary)
-            Text(usageTrackingExplanation)
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+            toggleRow("Automatically show newly discovered limits", isOn: $automaticallyShowNewUsageTracks, help: "Shows new account-reported counters when ChatGPT begins returning them.")
         }
     }
 
     private var usageAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Usage alerts")
-            Text("Turn on exactly the live counters you want notifications for. The first refresh after launch is only a baseline.")
-                .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             if !scopedUsageRows.isEmpty {
-                Text("Each percentage counter has its own thresholds. Remaining-use counters notify once when ChatGPT reports them unavailable.")
-                    .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
                 ForEach(scopedUsageRows) { row in
-                    toggleRow(row.title, isOn: alertBinding(for: row.id))
+                    toggleRow(row.title, isOn: alertBinding(for: row.id), help: "Notify when this live counter crosses a selected threshold or becomes unavailable.")
                     if row.supportsPercentageAlerts {
                         thresholdButtons(selection: thresholdBinding(for: row.id))
                             .disabled(!alertTrackIDs.contains(row.id))
@@ -535,11 +507,12 @@ struct SettingsView: View {
             toggleRow("Launch at login", isOn: $launchAtLogin)
             toggleRow("Command-I opens the tracker", isOn: $enableCommandIShortcut)
             if combinedMode && settingsScope == .codex {
-                toggleRow("Wake Mac for scheduled pings", isOn: $codexSessionPinger.enableScheduledWake)
+                toggleRow(
+                    "Wake Mac for scheduled pings",
+                    isOn: $codexSessionPinger.enableScheduledWake,
+                    help: "Uses the shared system helper. Codex and Claude keep separate schedules. Keep the Mac connected to power."
+                )
                 if codexSessionPinger.enableScheduledWake {
-                    Text(codexSessionPinger.wakeSupportStatus)
-                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
                     if let result = codexSessionPinger.wakeTestResult {
                         Label(result.message, systemImage: codexWakeResultSymbol(result.outcome))
                             .font(.system(size: 10, weight: .medium))
@@ -547,22 +520,29 @@ struct SettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if !codexSessionPinger.wakeHelperInstalled {
-                        Button(codexSessionPinger.isInstallingWakeSupport ? "Installing…" : "Install wake support") {
-                            codexSessionPinger.installWakeSupport()
+                        if let onOpenSystemSettings {
+                            Button("Set up in System") { onOpenSystemSettings() }
+                                .gptGhostButton()
+                        } else {
+                            Button(codexSessionPinger.isInstallingWakeSupport ? "Installing…" : "Install wake support") {
+                                codexSessionPinger.installWakeSupport()
+                            }
+                            .gptPrimaryButton()
+                            .disabled(codexSessionPinger.isInstallingWakeSupport)
                         }
-                        .gptPrimaryButton()
-                        .disabled(codexSessionPinger.isInstallingWakeSupport)
                     } else {
                         Button("Run 2-minute closed-lid test") {
                             codexSessionPinger.testWakeSupport()
                         }
                         .gptGhostButton()
                     }
-                    Text("Uses isolated Codex wake records, so changing Codex schedules never cancels Claude wake events. Keep the MacBook connected to power for closed-lid pings.")
-                        .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                    if !codexSessionPinger.wakeHelperInstalled {
+                        Text("Setup required")
+                            .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
+                    }
                 }
             }
-            toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass)
+            toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass, help: "Changes Settings glass transparency immediately.")
             if settingsScope != .chatGPT {
                 HStack {
                     Button("Clear Codex trend history") { history.clear() }.gptGhostButton()
@@ -679,30 +659,6 @@ struct SettingsView: View {
         }
     }
 
-    private var displayExplanation: String {
-        switch settingsScope {
-        case .codex:
-            return "The trend plots only server-reported Codex weekly percentages. It is sampled locally while this Mac is running and never mixes in rolling-window or ChatGPT counters."
-        case .chatGPT:
-            return "ChatGPT displays only account-reported model and feature limits. Session Tracker keeps it separate from Codex usage."
-        case nil:
-            return combinedMode
-                ? "Session Tracker keeps Codex and ChatGPT as separate top-level tabs."
-                : "With tabs off, the menu combines Codex and ChatGPT into one dashboard."
-        }
-    }
-
-    private var usageTrackingExplanation: String {
-        switch settingsScope {
-        case .codex:
-            return "Codex weekly, rolling, code-review, credit, and workspace limits remain separate. The trend is built only from the reported Codex weekly percentage."
-        case .chatGPT:
-            return "Some documented limits—especially rolling uploads, voice, video and screen share—appear only when ChatGPT exposes a counter to this account."
-        case nil:
-            return "Rolling windows, weekly windows, model limits, feature allowances, credits, and remaining-task counters remain separate."
-        }
-    }
-
     private func usageToggle(_ row: UsageSettingRow) -> some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -716,8 +672,14 @@ struct SettingsView: View {
         }
     }
 
-    private func toggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
-        TrackerSettingsToggleRow(title, isOn: isOn, accent: GPTTheme.accent, clearGlass: preferClearGlass)
+    private func toggleRow(_ title: String, isOn: Binding<Bool>, help: String? = nil) -> some View {
+        TrackerSettingsToggleRow(
+            title,
+            isOn: isOn,
+            accent: GPTTheme.accent,
+            clearGlass: preferClearGlass,
+            helpText: help
+        )
     }
 
     private func fieldLabel(_ text: String) -> some View {

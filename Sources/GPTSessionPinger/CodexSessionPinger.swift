@@ -194,9 +194,15 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     func nextPossibleSessionDate(now: Date = Date(), resetDate: Date? = nil) -> Date {
-        let liveReset = resetDate ?? rollingFiveHourReset
-        if rollingFiveHourPercent == nil || (rollingFiveHourPercent ?? 100) >= 100,
-           let liveReset, liveReset > now { return liveReset }
+        Self.nextPossibleSessionDate(
+            now: now,
+            rollingReset: resetDate ?? rollingFiveHourReset,
+            lastSuccess: lastSuccess
+        )
+    }
+
+    static func nextPossibleSessionDate(now: Date, rollingReset: Date?, lastSuccess: Date?) -> Date {
+        if let rollingReset, rollingReset > now { return rollingReset }
         if let lastSuccess { return max(now, lastSuccess.addingTimeInterval(Self.minimumSpacing)) }
         return now
     }
@@ -391,6 +397,16 @@ final class CodexSessionPinger: ObservableObject {
                 self.isInstallingWakeSupport = false
                 self.wakeSupportStatus = error.localizedDescription
             }
+        }
+    }
+
+    func refreshWakeSupportState() {
+        wakeHelperInstalled = CodexWakeSupport.isInstalled
+        wakeTestResult = CodexWakeSupport.lastTestResult
+        if wakeHelperInstalled {
+            synchronizeWakeSchedule()
+        } else if enableScheduledWake {
+            wakeSupportStatus = "Setup required in System."
         }
     }
 

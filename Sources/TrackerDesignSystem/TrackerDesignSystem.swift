@@ -644,19 +644,27 @@ public struct TrackerSettingsCard<Content: View>: View {
 
 public struct TrackerSettingsToggleRow: View {
     private let title: String
+    private let helpText: String?
     @Binding private var isOn: Bool
     private let accent: Color
     private let clearGlass: Bool
 
-    public init(_ title: String, isOn: Binding<Bool>, accent: Color, clearGlass: Bool) {
+    public init(
+        _ title: String,
+        isOn: Binding<Bool>,
+        accent: Color,
+        clearGlass: Bool,
+        helpText: String? = nil
+    ) {
         self.title = title
+        self.helpText = helpText
         _isOn = isOn
         self.accent = accent
         self.clearGlass = clearGlass
     }
 
     public var body: some View {
-        HStack {
+        let row = HStack {
             Text(title)
                 .font(.system(size: 12))
                 .foregroundColor(.primary)
@@ -665,6 +673,11 @@ public struct TrackerSettingsToggleRow: View {
                 .labelsHidden()
                 .toggleStyle(TrackerGlassToggleStyle(accent: accent, clearGlass: clearGlass))
                 .accessibilityLabel(Text(title))
+        }
+        if let helpText {
+            row.help(helpText)
+        } else {
+            row
         }
     }
 }
