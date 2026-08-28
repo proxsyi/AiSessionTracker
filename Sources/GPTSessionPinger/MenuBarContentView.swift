@@ -119,7 +119,7 @@ struct MenuBarContentView: View {
            codexSessionPinger.showNextPossibleCountdown || codexSessionPinger.showScheduledCountdown {
             menuCard { codexSessionPingerCard(tracks: tracks) }
         }
-        if let reset = primaryResetDate(for: tracks) {
+        if tab == .chatGPT, let reset = primaryResetDate(for: tracks) {
             menuCard { resetCountdown(reset) }
         }
         if tab == .codex, settings.showHistoryChart, let weekly = visibleWeeklyTrack {
@@ -132,9 +132,7 @@ struct MenuBarContentView: View {
         return TrackerMenuSessionCard(
             title: codexPrimaryCountdownTitle,
             countdown: codexPrimaryCountdownText(nextPossible: next),
-            secondary: codexSecondaryCountdownText(nextPossible: next),
-            status: codexSessionPinger.status,
-            statusColor: codexStatusColor
+            secondary: codexSecondaryCountdownText(nextPossible: next)
         ) {
             Button(codexSessionPinger.isPinging ? "Pinging…" : "Ping now") {
                 codexSessionPinger.pingNow()
@@ -341,11 +339,6 @@ struct MenuBarContentView: View {
         let minutes = (Int(remaining) % 3_600) / 60
         let seconds = Int(remaining) % 60
         return hours > 0 ? String(format: "%dh %02dm", hours, minutes) : String(format: "%dm %02ds", minutes, seconds)
-    }
-
-    private var codexStatusColor: Color {
-        let text = codexSessionPinger.status?.lowercased() ?? ""
-        return text.contains("failed") || text.contains("expired") || text.contains("error") ? .red : GPTTheme.textSecondary
     }
 
     private var refreshRow: some View {

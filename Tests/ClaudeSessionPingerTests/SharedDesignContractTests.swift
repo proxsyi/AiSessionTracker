@@ -103,6 +103,16 @@ final class SharedDesignContractTests: XCTestCase {
         XCTAssertTrue(menu.contains("if embeddedTab != nil, tab == .codex"))
     }
 
+    func testCodexMenuKeepsResetAndPingDiagnosticsOutOfTheDashboard() throws {
+        let menu = try String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GPTSessionPinger/MenuBarContentView.swift"
+        ))
+
+        XCTAssertTrue(menu.contains("if tab == .chatGPT, let reset = primaryResetDate(for: tracks)"))
+        XCTAssertFalse(menu.contains("status: codexSessionPinger.status"))
+        XCTAssertFalse(menu.contains("codexStatusColor"))
+    }
+
     func testGPTAlertThresholdsAreStoredAndReadPerCounter() throws {
         let settingsStore = try String(contentsOf: repositoryRoot.appendingPathComponent(
             "Sources/GPTSessionPinger/SettingsStore.swift"
