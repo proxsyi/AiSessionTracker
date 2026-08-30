@@ -1,6 +1,18 @@
 import AppKit
 import SwiftUI
 
+private final class SettingsDeactivationObservation: @unchecked Sendable {
+    let token: NSObjectProtocol
+
+    init(token: NSObjectProtocol) {
+        self.token = token
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(token)
+    }
+}
+
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
@@ -8,7 +20,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let history: UsageHistoryStore
     private let appState: AppState
     private let codexSessionPinger: CodexSessionPinger
-    private var deactivationObserver: NSObjectProtocol?
+    private var deactivationObserver: SettingsDeactivationObservation?
 
     init(settings: SettingsStore, history: UsageHistoryStore, appState: AppState, codexSessionPinger: CodexSessionPinger) {
         self.settings = settings
@@ -25,7 +37,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         appState.toggleSettingsWindow = { [weak self] in
             self?.toggle()
         }
-        deactivationObserver = NotificationCenter.default.addObserver(
+        let token = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: NSApp,
             queue: .main
@@ -34,12 +46,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 self?.restoreFocusAfterMenuBarHover()
             }
         }
-    }
-
-    deinit {
-        if let deactivationObserver {
-            NotificationCenter.default.removeObserver(deactivationObserver)
-        }
+        deactivationObserver = SettingsDeactivationObservation(token: token)
     }
 
     var isShowing: Bool {

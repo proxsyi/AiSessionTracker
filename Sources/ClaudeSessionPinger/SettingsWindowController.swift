@@ -1,6 +1,7 @@
 import AppKit
 import GPTTrackerFeature
 import SwiftUI
+import TrackerDesignSystem
 
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
@@ -10,7 +11,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let appState: AppState
     private let gptFeature: GPTFeatureState
     private let selection: CombinedSelectionStore
-    private var deactivationObserver: NSObjectProtocol?
+    private var deactivationObserver: TrackerNotificationObservation?
 
     init(
         settings: SettingsStore,
@@ -34,7 +35,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         appState.toggleSettingsWindow = { [weak self] in
             self?.toggle()
         }
-        deactivationObserver = NotificationCenter.default.addObserver(
+        let token = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: NSApp,
             queue: .main
@@ -43,12 +44,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
                 self?.restoreFocusAfterMenuBarHover()
             }
         }
-    }
-
-    deinit {
-        if let deactivationObserver {
-            NotificationCenter.default.removeObserver(deactivationObserver)
-        }
+        deactivationObserver = TrackerNotificationObservation(token: token)
     }
 
     var isShowing: Bool {

@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import TrackerDesignSystem
 import UserNotifications
 
 private actor WakeScheduleCoordinator {
@@ -61,7 +62,7 @@ final class AppState: ObservableObject {
     private var autoStartAttemptPending = false
     private var pendingAutomaticWakePing: Date?
     private var pendingAutomaticWakeIsTest = false
-    private var automaticWakePingTask: Task<Void, Never>?
+    private let automaticWakePingTask = TrackerCancellableTask()
     private var wakeSyncGeneration = 0
     private let wakeScheduleCoordinator = WakeScheduleCoordinator()
     private let updatesEnabled: Bool
@@ -89,9 +90,6 @@ final class AppState: ObservableObject {
     deinit {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         NotificationCenter.default.removeObserver(self)
-        updateTimer?.invalidate()
-        usageTimer?.invalidate()
-        automaticWakePingTask?.cancel()
     }
 
     func rescheduleTimer() {
@@ -140,11 +138,11 @@ final class AppState: ObservableObject {
 
     private func queueAutomaticWakePing(at date: Date, isWakeTest: Bool = false) {
         WakeSupport.appendDiagnostic("queued automatic ping for \(date.timeIntervalSince1970)")
-        automaticWakePingTask?.cancel()
+        automaticWakePingTask.task?.cancel()
         pendingAutomaticWakePing = date
         pendingAutomaticWakeIsTest = isWakeTest
         let delay = max(0, date.timeIntervalSinceNow)
-        automaticWakePingTask = Task { [weak self] in
+        automaticWakePingTask.task = Task { [weak self] in
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
@@ -198,7 +196,7 @@ final class AppState: ObservableObject {
             let isWakeTest = pendingAutomaticWakeIsTest
             pendingAutomaticWakePing = nil
             pendingAutomaticWakeIsTest = false
-            automaticWakePingTask = nil
+            automaticWakePingTask.task = nil
             WakeSupport.appendDiagnostic("automatic ping started")
 
             let completedPing = await runPing(manual: false)
@@ -268,8 +266,8 @@ final class AppState: ObservableObject {
         let enabled = settings.enableScheduledWake
         let slots = settings.scheduleSlots
         if !enabled {
-            automaticWakePingTask?.cancel()
-            automaticWakePingTask = nil
+            automaticWakePingTask.task?.cancel()
+            automaticWakePingTask.task = nil
             pendingAutomaticWakePing = nil
             pendingAutomaticWakeIsTest = false
         }
@@ -498,7 +496,7 @@ final class AppState: ObservableObject {
         return false
     }
 
-    private var updateTimer: Timer?
+    private let updateTimer = TrackerInvalidatingTimer()
 
     /// Checks once shortly after launch, then once a day after that.
     /// Any failure (no network, no feed configured yet, bad response) is
@@ -509,13 +507,13 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             await self?.checkForUpdates()
         }
-        updateTimer?.invalidate()
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60 * 24, repeats: true) { [weak self] _ in
+        updateTimer.timer?.invalidate()
+        updateTimer.timer = Timer.scheduledTimer(withTimeInterval: 60 * 60 * 24, repeats: true) { [weak self] _ in
             Task { await self?.checkForUpdates() }
         }
     }
 
-    private var usageTimer: Timer?
+    private let usageTimer = TrackerInvalidatingTimer()
 
     /// Fetches usage shortly after launch, then every 5 minutes, mirroring how
     /// ClaudeUsageBar keeps its numbers fresh. Failures only set `usageError`
@@ -525,8 +523,8 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await self?.refreshUsage()
         }
-        usageTimer?.invalidate()
-        usageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        usageTimer.timer?.invalidate()
+        usageTimer.timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { await self?.refreshUsage() }
         }
     }

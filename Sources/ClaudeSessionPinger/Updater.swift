@@ -1,12 +1,13 @@
 import Foundation
 import AppKit
+import TrackerDesignSystem
 
 enum UpdaterError: LocalizedError {
     case badAssetURL
     case downloadFailed(String)
     case unzipFailed
     case noAppFoundInArchive
-    case bundleIdentifierMismatch
+    case untrustedUpdate(String)
 
     var errorDescription: String? {
         switch self {
@@ -18,21 +19,25 @@ enum UpdaterError: LocalizedError {
             return "Couldn't unzip the downloaded update."
         case .noAppFoundInArchive:
             return "The downloaded update didn't contain an app bundle."
-        case .bundleIdentifierMismatch:
-            return "The downloaded update belongs to a different app and was not installed."
+        case .untrustedUpdate(let message):
+            return "The downloaded update was not installed: \(message)"
         }
     }
 }
 
 /// Downloads a new release's app bundle from GitHub, swaps it in for this
-/// running app, and relaunches it. There's no Sparkle-style signed-update
-/// framework here -- this is a small hand-rolled updater appropriate for a
-/// single-user personal app pulling from a private repo only you control.
+/// running app, and relaunches it after verifying its Developer ID signature,
+/// hardened runtime, bundle identity, signing team, and Apple notarization.
 @MainActor
 enum Updater {
     static func downloadAndInstall(_ update: UpdateInfo) async throws {
         guard let assetURL = URL(string: update.assetAPIURL) else {
             throw UpdaterError.badAssetURL
+        }
+        do {
+            try TrackerSecureUpdate.validateAssetURL(assetURL)
+        } catch {
+            throw UpdaterError.untrustedUpdate(error.localizedDescription)
         }
 
         var request = URLRequest(url: assetURL)
@@ -47,6 +52,10 @@ enum Updater {
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ClaudeSessionPingerUpdate-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: workDir, withIntermediateDirectories: true)
+        var installerStarted = false
+        defer {
+            if !installerStarted { try? FileManager.default.removeItem(at: workDir) }
+        }
         let zipPath = workDir.appendingPathComponent(UpdateFeed.assetName)
         try FileManager.default.moveItem(at: downloadedURL, to: zipPath)
 
@@ -59,36 +68,24 @@ enum Updater {
             throw UpdaterError.unzipFailed
         }
 
-        let extractedContents = try FileManager.default.contentsOfDirectory(at: workDir, includingPropertiesForKeys: nil)
-        guard let newAppPath = extractedContents.first(where: { $0.pathExtension == "app" }) else {
-            throw UpdaterError.noAppFoundInArchive
-        }
-
         let currentAppPath = URL(fileURLWithPath: Bundle.main.bundlePath)
-        guard Bundle(url: newAppPath)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
-            throw UpdaterError.bundleIdentifierMismatch
+        let newAppPath: URL
+        do {
+            newAppPath = try TrackerSecureUpdate.locateTopLevelApp(in: workDir)
+            try TrackerSecureUpdate.verifyApp(
+                at: newAppPath,
+                expectedBundleIdentifier: Bundle.main.bundleIdentifier ?? ""
+            )
+            try TrackerSecureUpdate.launchInstaller(
+                currentApp: currentAppPath,
+                newApp: newAppPath,
+                workDirectory: workDir,
+                processIdentifier: ProcessInfo.processInfo.processIdentifier
+            )
+            installerStarted = true
+        } catch {
+            throw UpdaterError.untrustedUpdate(error.localizedDescription)
         }
-        let scriptURL = workDir.appendingPathComponent("install.sh")
-        let script = """
-        #!/bin/bash
-        while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do
-            sleep 0.2
-        done
-        rm -rf "\(currentAppPath.path)"
-        mv "\(newAppPath.path)" "\(currentAppPath.path)"
-        xattr -dr com.apple.quarantine "\(currentAppPath.path)" 2>/dev/null
-        open "\(currentAppPath.path)"
-        rm -rf "\(workDir.path)"
-        """
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-
-        let installer = Process()
-        installer.executableURL = URL(fileURLWithPath: "/bin/bash")
-        installer.arguments = [scriptURL.path]
-        installer.standardOutput = FileHandle.nullDevice
-        installer.standardError = FileHandle.nullDevice
-        try installer.run()
 
         NSApp.terminate(nil)
     }

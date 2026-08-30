@@ -4,8 +4,9 @@ extension Notification.Name {
     static let commandIShortcutSettingChanged = Notification.Name("commandIShortcutSettingChanged")
 }
 
+@MainActor
 final class SettingsStore: ObservableObject {
-    private static let serviceDomain = "com.proxsyi.gptsessionpinger"
+    nonisolated private static let serviceDomain = "com.proxsyi.gptsessionpinger"
 
     /// Reuse the standalone GPT app's preference domain when this feature
     /// runs inside the combined tracker, without colliding with Claude settings.
@@ -16,7 +17,7 @@ final class SettingsStore: ObservableObject {
         return UserDefaults(suiteName: suiteName) ?? .standard
     }()
 
-    static func defaultsSuiteName(for bundleIdentifier: String?) -> String? {
+    nonisolated static func defaultsSuiteName(for bundleIdentifier: String?) -> String? {
         bundleIdentifier == serviceDomain ? nil : serviceDomain
     }
 
@@ -48,7 +49,7 @@ final class SettingsStore: ObservableObject {
         static let trackerMigrationVersion = "trackerMigrationVersion"
     }
 
-    private static let currentTrackerMigrationVersion = 2
+    private static let currentTrackerMigrationVersion = 3
 
     @Published var organizationID: String {
         didSet { Self.serviceDefaults.set(organizationID, forKey: Keys.organizationID) }
@@ -112,8 +113,11 @@ final class SettingsStore: ObservableObject {
     @Published var cookieHeader: String {
         didSet { persistWebSession() }
     }
+    @Published private(set) var credentialPersistenceError: String?
+    @Published private(set) var availablePingModels: [ChatGPTModelOption] = []
 
     init() {
+        credentialPersistenceError = nil
         let defaults = Self.serviceDefaults
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
         let storedWebSession = KeychainStore.load()
@@ -121,8 +125,8 @@ final class SettingsStore: ObservableObject {
         sessionKey = storedSessionKey
         cookieHeader = storedWebSession?.cookieHeader ?? ""
         accountPlanType = defaults.string(forKey: Keys.accountPlanType) ?? ChatGPTWebSession.planType(from: storedSessionKey) ?? ""
-        pingModel = defaults.string(forKey: Keys.pingModel) ?? "gpt-5.4-mini"
-        pingReasoningEffort = defaults.string(forKey: Keys.pingReasoningEffort) ?? "low"
+        pingModel = defaults.string(forKey: Keys.pingModel) ?? ChatGPTModelCatalog.lowestUsageModelSlug
+        pingReasoningEffort = defaults.string(forKey: Keys.pingReasoningEffort) ?? "none"
         pingMessage = defaults.string(forKey: Keys.pingMessage) ?? "Say 1"
         pingConversationID = defaults.string(forKey: Keys.pingConversationID) ?? ""
         pingParentMessageID = defaults.string(forKey: Keys.pingParentMessageID) ?? ""
@@ -211,6 +215,32 @@ final class SettingsStore: ObservableObject {
         usageThresholdsByTrack[id] = Array(Set(thresholds)).sorted()
     }
 
+    func registerAvailablePingModels(_ models: [ChatGPTModelOption]) {
+        guard !models.isEmpty else { return }
+        availablePingModels = models
+        if let selected = models.first(where: { $0.slug == pingModel && !$0.isWorkMode }) {
+            normalizePingEffort(for: selected)
+        } else if let lowest = models.first(where: { $0.slug == ChatGPTModelCatalog.lowestUsageModelSlug && !$0.isWorkMode }) {
+            pingModel = lowest.slug
+            normalizePingEffort(for: lowest)
+        }
+    }
+
+    func pingModelOption(for slug: String) -> ChatGPTModelOption? {
+        availablePingModels.first(where: { $0.slug == slug })
+    }
+
+    func pingModelTitle(for slug: String) -> String {
+        pingModelOption(for: slug)?.title ?? ChatGPTModelCatalog.fallbackTitle(for: slug)
+    }
+
+    func normalizePingEffort(for model: ChatGPTModelOption) {
+        let efforts = model.selectableEfforts
+        if !efforts.contains(where: { $0.id == pingReasoningEffort }) {
+            pingReasoningEffort = efforts.first?.id ?? "default"
+        }
+    }
+
     func clearChatGPTLogin() {
         sessionKey = ""
         cookieHeader = ""
@@ -222,6 +252,12 @@ final class SettingsStore: ObservableObject {
 
     private func removeLegacySessionPreferencesIfNeeded(defaults: UserDefaults) {
         guard defaults.integer(forKey: Keys.trackerMigrationVersion) < Self.currentTrackerMigrationVersion else { return }
+        if pingModel == "gpt-5.4-mini" {
+            pingModel = ChatGPTModelCatalog.lowestUsageModelSlug
+        }
+        if pingModel == ChatGPTModelCatalog.lowestUsageModelSlug {
+            pingReasoningEffort = "none"
+        }
         [
             "model", "message", "conversationID", "showSessionBar", "showWeeklyBar", "showFable5Bar",
             "notifySessionAvailable", "notifySessionStarted", "autoStartAvailableSessions",
@@ -239,7 +275,12 @@ final class SettingsStore: ObservableObject {
     }
 
     private func persistWebSession() {
-        try? KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
+        do {
+            try KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
+            credentialPersistenceError = nil
+        } catch {
+            credentialPersistenceError = error.localizedDescription
+        }
     }
 
     private static func loadSet(key: String) -> Set<String> {

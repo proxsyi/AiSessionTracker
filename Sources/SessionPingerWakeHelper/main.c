@@ -10,19 +10,25 @@
 #include <time.h>
 #include <unistd.h>
 
-#define HELPER_VERSION "3"
+#define HELPER_VERSION "4"
+#define LEGACY_OWNER_IDENTIFIER "com.proxsyi.sessiontracker"
 #define CLAUDE_OWNER_IDENTIFIER "com.proxsyi.sessiontracker.claude"
 #define CODEX_OWNER_IDENTIFIER "com.proxsyi.sessiontracker.codex"
 #define ALLOWED_UID_PATH "/Library/Application Support/SessionTracker/allowed_uid"
 
 static void print_usage(void) {
-    fprintf(stderr, "usage: wake-helper version | schedule <claude|codex> <unix-seconds> | cancel <claude|codex> <unix-seconds> | hold <seconds> | sleep\n");
+    fprintf(stderr, "usage: wake-helper version | schedule <claude|codex> <unix-seconds> | cancel <claude|codex> <unix-seconds> | purge <claude|codex|legacy> | hold <seconds> | sleep\n");
 }
 
 static CFStringRef owner_for_channel(const char *channel) {
     if (strcmp(channel, "claude") == 0) return CFSTR(CLAUDE_OWNER_IDENTIFIER);
     if (strcmp(channel, "codex") == 0) return CFSTR(CODEX_OWNER_IDENTIFIER);
     return NULL;
+}
+
+static CFStringRef owner_for_purge_target(const char *target) {
+    if (strcmp(target, "legacy") == 0) return CFSTR(LEGACY_OWNER_IDENTIFIER);
+    return owner_for_channel(target);
 }
 
 static int caller_is_allowed(void) {
@@ -58,6 +64,36 @@ static int report_result(const char *operation, IOReturn result) {
     if (result == kIOReturnSuccess) return 0;
     fprintf(stderr, "%s failed (IOReturn 0x%08x)\n", operation, result);
     return 1;
+}
+
+static int purge_events_for_owner(CFStringRef owner) {
+    CFArrayRef events = IOPMCopyScheduledPowerEvents();
+    if (events == NULL) return 0;
+
+    int failed = 0;
+    CFIndex count = CFArrayGetCount(events);
+    for (CFIndex index = 0; index < count; index++) {
+        CFTypeRef value = CFArrayGetValueAtIndex(events, index);
+        if (value == NULL || CFGetTypeID(value) != CFDictionaryGetTypeID()) continue;
+
+        CFDictionaryRef event = (CFDictionaryRef)value;
+        CFStringRef scheduled_by = CFDictionaryGetValue(event, CFSTR(kIOPMPowerEventAppNameKey));
+        CFStringRef event_type = CFDictionaryGetValue(event, CFSTR(kIOPMPowerEventTypeKey));
+        CFDateRef event_time = CFDictionaryGetValue(event, CFSTR(kIOPMPowerEventTimeKey));
+        if (scheduled_by == NULL || event_type == NULL || event_time == NULL) continue;
+        if (CFGetTypeID(scheduled_by) != CFStringGetTypeID()
+            || CFGetTypeID(event_type) != CFStringGetTypeID()
+            || CFGetTypeID(event_time) != CFDateGetTypeID()) continue;
+        if (!CFEqual(scheduled_by, owner) || !CFEqual(event_type, CFSTR(kIOPMAutoWake))) continue;
+
+        IOReturn result = IOPMCancelScheduledPowerEvent(event_time, owner, event_type);
+        if (result != kIOReturnSuccess) {
+            report_result("purge", result);
+            failed = 1;
+        }
+    }
+    CFRelease(events);
+    return failed;
 }
 
 int main(int argc, const char *argv[]) {
@@ -106,6 +142,15 @@ int main(int argc, const char *argv[]) {
         sleep((unsigned int)seconds);
         IOPMAssertionRelease(assertion_id);
         return 0;
+    }
+
+    if (argc == 3 && strcmp(argv[1], "purge") == 0) {
+        CFStringRef owner = owner_for_purge_target(argv[2]);
+        if (owner == NULL) {
+            fprintf(stderr, "invalid wake purge target\n");
+            return 64;
+        }
+        return purge_events_for_owner(owner);
     }
 
     if (argc == 4 && (strcmp(argv[1], "schedule") == 0 || strcmp(argv[1], "cancel") == 0)) {

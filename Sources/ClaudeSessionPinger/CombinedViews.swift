@@ -243,11 +243,13 @@ struct CombinedMenuBarContentView: View {
 
 struct CombinedSettingsView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var settings: SettingsStore
     @EnvironmentObject private var selection: CombinedSelectionStore
     @ObservedObject var gptFeature: GPTFeatureState
     @State private var showingMenuBarSettings = false
     @State private var selectedSection: CombinedSettingsSection = .claude
     @State private var initializedSelection = false
+    @State private var launchAtLogin = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -320,6 +322,7 @@ struct CombinedSettingsView: View {
                 togglePopover: { appState.requestTogglePopover?() }
             )
             refreshWakeSetupState()
+            launchAtLogin = LoginItemManager.isEnabled
         }
         .onChange(of: selectedSection) { section in
             if let service = serviceTab(for: section) { selection.selectedTab = service }
@@ -373,6 +376,17 @@ struct CombinedSettingsView: View {
                                 .foregroundColor(ClaudeTheme.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+
+                        Divider()
+                        HStack {
+                            Text("Launch at login")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            Toggle("", isOn: $launchAtLogin)
+                                .labelsHidden()
+                                .toggleStyle(TrackerGlassToggleStyle(accent: ClaudeTheme.accent, clearGlass: true))
+                        }
+                        .help("Starts Session Tracker automatically after you sign in to this Mac.")
                     }
                 }
                 .padding(20)
@@ -385,7 +399,12 @@ struct CombinedSettingsView: View {
                 testTitle: "Refresh status",
                 onTest: refreshWakeSetupState,
                 onCancel: { appState.closeSettingsWindow?() },
-                onSave: { appState.closeSettingsWindow?() }
+                onSave: {
+                    settings.launchAtLogin = launchAtLogin
+                    gptFeature.setLaunchAtLoginPreference(launchAtLogin)
+                    LoginItemManager.setEnabled(launchAtLogin)
+                    appState.closeSettingsWindow?()
+                }
             ) { EmptyView() }
         }
         .frame(width: 500, height: 640)

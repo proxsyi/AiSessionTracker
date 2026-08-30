@@ -1,4 +1,5 @@
 import SwiftUI
+import TrackerDesignSystem
 import WebKit
 
 private let desktopSafariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
@@ -50,7 +51,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         private let onCookiesCaptured: (String, String?, String) -> Void
         private let onStateChange: (CookieLoginState) -> Void
         private weak var webView: WKWebView?
-        private var pollTimer: Timer?
+        private let pollTimer = TrackerInvalidatingTimer()
         private var didCapture = false
         private var popupWindows: [NSWindow] = []
         private var sessionKeyFoundAt: Date?
@@ -73,12 +74,12 @@ struct CookieLoginRepresentable: NSViewRepresentable {
                 }
             }
             RunLoop.main.add(timer, forMode: .common)
-            pollTimer = timer
+            pollTimer.timer = timer
         }
 
         func stopPolling() {
-            pollTimer?.invalidate()
-            pollTimer = nil
+            pollTimer.timer?.invalidate()
+            pollTimer.timer = nil
         }
 
         // MARK: WKNavigationDelegate
@@ -203,9 +204,6 @@ struct CookieLoginRepresentable: NSViewRepresentable {
             }
         }
 
-        deinit {
-            pollTimer?.invalidate()
-        }
     }
 }
 

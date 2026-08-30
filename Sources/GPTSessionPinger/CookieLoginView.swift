@@ -1,4 +1,5 @@
 import SwiftUI
+import TrackerDesignSystem
 import WebKit
 
 enum CookieLoginState: Equatable {
@@ -79,7 +80,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         private let onCookiesCaptured: (ChatGPTLoginCapture) -> Void
         private let onStateChange: (CookieLoginState) -> Void
         private weak var webView: WKWebView?
-        private var pollTimer: Timer?
+        private let pollTimer = TrackerInvalidatingTimer()
         private var didCapture = false
         private var isValidatingCookies = false
         private var popupWindows: [NSWindow] = []
@@ -97,12 +98,12 @@ struct CookieLoginRepresentable: NSViewRepresentable {
                 }
             }
             RunLoop.main.add(timer, forMode: .common)
-            pollTimer = timer
+            pollTimer.timer = timer
         }
 
         func stopPolling() {
-            pollTimer?.invalidate()
-            pollTimer = nil
+            pollTimer.timer?.invalidate()
+            pollTimer.timer = nil
         }
 
         // MARK: WKNavigationDelegate
@@ -230,9 +231,6 @@ struct CookieLoginRepresentable: NSViewRepresentable {
             }
         }
 
-        deinit {
-            pollTimer?.invalidate()
-        }
     }
 }
 

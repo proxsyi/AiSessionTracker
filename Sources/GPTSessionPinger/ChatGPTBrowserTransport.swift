@@ -3,6 +3,11 @@ import Foundation
 import OSLog
 import WebKit
 
+enum ChatGPTComposerMode: String, Sendable {
+    case chat = "Chat"
+    case work = "Work"
+}
+
 struct ChatGPTBrowserResponse: Sendable {
     let statusCode: Int
     let body: Data
@@ -71,6 +76,8 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         message: String,
         conversationID: String?,
         model: String,
+        modelTitle: String,
+        mode: ChatGPTComposerMode,
         reasoningEffort: String,
         cookieHeader: String,
         timeout: TimeInterval
@@ -80,8 +87,12 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             in: webView,
             conversationID: conversationID,
             model: model,
-            reasoningEffort: reasoningEffort
+            reasoningEffort: reasoningEffort,
+            mode: mode
         )
+        if mode == .chat, reasoningEffort == "none" {
+            try await verifySelectedModel(modelTitle, in: webView)
+        }
         return try await sendThroughComposer(
             message,
             existingConversationID: conversationID,
@@ -148,7 +159,8 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         in webView: WKWebView,
         conversationID: String?,
         model: String,
-        reasoningEffort: String
+        reasoningEffort: String,
+        mode: ChatGPTComposerMode
     ) async throws {
         guard let url = Self.conversationURL(
             conversationID: conversationID,
@@ -163,6 +175,37 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
         }
         try? await Task.sleep(nanoseconds: 3_000_000_000)
+        if conversationID?.isEmpty != false {
+            try await selectComposerMode(mode, in: webView)
+        }
+    }
+
+    private func selectComposerMode(_ mode: ChatGPTComposerMode, in webView: WKWebView) async throws {
+        let deadline = Date().addingTimeInterval(12)
+        var clicked = false
+        while Date() < deadline {
+            let result = try await webView.callAsyncJavaScript(
+                """
+                const target = Array.from(document.querySelectorAll('button[role="radio"]'))
+                  .find(button => (button.innerText || button.textContent || '').trim() === title);
+                if (!target) return { found: false, selected: false };
+                const selected = target.getAttribute('aria-checked') === 'true' ||
+                  target.getAttribute('data-state') === 'checked' ||
+                  target.getAttribute('aria-selected') === 'true';
+                if (!selected && shouldClick) target.click();
+                return { found: true, selected };
+                """,
+                arguments: ["title": mode.rawValue, "shouldClick": !clicked],
+                in: nil,
+                contentWorld: .page
+            )
+            if let object = result as? [String: Any] {
+                if object["selected"] as? Bool == true { return }
+                if object["found"] as? Bool == true { clicked = true }
+            }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        throw ChatGPTPingError.serverError(503, "ChatGPT \(mode.rawValue) composer was unavailable")
     }
 
     nonisolated static func conversationURL(
@@ -178,11 +221,31 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         } else {
             components.path = "/"
         }
-        components.queryItems = [
-            URLQueryItem(name: "model", value: model),
-            URLQueryItem(name: "reasoning_effort", value: reasoningEffort)
-        ]
+        components.queryItems = [URLQueryItem(name: "model", value: model)]
+        if reasoningEffort != "none", reasoningEffort != "default" {
+            components.queryItems?.append(URLQueryItem(name: "reasoning_effort", value: reasoningEffort))
+            components.queryItems?.append(URLQueryItem(name: "thinking_effort", value: reasoningEffort))
+        }
         return components.url
+    }
+
+    private func verifySelectedModel(_ expectedTitle: String, in webView: WKWebView) async throws {
+        let expected = ChatGPTModelCatalog.normalizedSelection(expectedTitle)
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if let values = try? await webView.callAsyncJavaScript(
+                "return Array.from(document.querySelectorAll('button')).map(button => (button.innerText || button.textContent || '').trim());",
+                arguments: [:],
+                in: nil,
+                contentWorld: .page
+            ) as? [String], values.contains(where: {
+                ChatGPTModelCatalog.normalizedSelection($0) == expected
+            }) {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        throw ChatGPTPingError.modelSelectionFailed(expectedTitle)
     }
 
     private func installCookies(
@@ -295,24 +358,28 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         while Date() < deadline {
             if let state = try? await composerState(in: webView),
                state.assistantCount > assistantCount,
-               !state.isGenerating,
-               !state.replyText.isEmpty {
+               !state.isGenerating {
                 let resolvedConversationID = state.conversationID ?? existingConversationID
                 guard let resolvedConversationID, !resolvedConversationID.isEmpty else {
                     return failureResponse(status: 502, message: "ChatGPT sent the ping but did not expose its conversation ID.")
                 }
+                let replyText = state.replyText.trimmingCharacters(in: .whitespacesAndNewlines)
                 return ChatGPTBrowserResponse(
                     statusCode: 200,
-                    body: Data(state.replyText.utf8),
+                    body: Data(replyText.utf8),
                     contentType: "text/plain",
                     browserCheckHeader: "",
                     conversationID: resolvedConversationID,
-                    replyText: state.replyText
+                    replyText: replyText.isEmpty ? nil : replyText
                 )
             }
             try? await Task.sleep(nanoseconds: 400_000_000)
         }
-        return failureResponse(status: 504, message: "ChatGPT did not finish the ping before the timeout.")
+        let diagnostics = (try? await composerDiagnostics(in: webView)) ?? "state unavailable"
+        return failureResponse(
+            status: 504,
+            message: "ChatGPT did not finish the ping before the timeout (\(diagnostics))."
+        )
     }
 
     private func composerState(in webView: WKWebView) async throws -> (
@@ -329,7 +396,9 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
               assistantCount: assistants.length,
               isGenerating: Boolean(document.querySelector('[data-testid="stop-button"]')),
               conversationID: pathMatch ? pathMatch[1] : '',
-              replyText: assistants.length ? (assistants[assistants.length - 1].innerText || '').trim() : ''
+              replyText: assistants.length
+                ? (assistants[assistants.length - 1].innerText || assistants[assistants.length - 1].textContent || '').trim()
+                : ''
             };
             """,
             arguments: [:],
@@ -345,6 +414,36 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             (object["conversationID"] as? String)?.nilIfEmpty,
             object["replyText"] as? String ?? ""
         )
+    }
+
+    private func composerDiagnostics(in webView: WKWebView) async throws -> String {
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const assistants = document.querySelectorAll('[data-message-author-role="assistant"]');
+            const roles = Array.from(document.querySelectorAll('[data-message-author-role]'))
+              .map(node => node.getAttribute('data-message-author-role'));
+            const pathMatch = location.pathname.match(/^\\/c\\/([^/?#]+)/);
+            return {
+              assistantCount: assistants.length,
+              roleCount: roles.length,
+              hasAssistantRole: roles.includes('assistant'),
+              articleCount: document.querySelectorAll('article').length,
+              isGenerating: Boolean(document.querySelector('[data-testid="stop-button"]')),
+              hasConversationID: Boolean(pathMatch)
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        guard let object = result as? [String: Any] else { return "invalid state" }
+        let assistantCount = object["assistantCount"] as? Int ?? -1
+        let roleCount = object["roleCount"] as? Int ?? -1
+        let hasAssistantRole = object["hasAssistantRole"] as? Bool ?? false
+        let articleCount = object["articleCount"] as? Int ?? -1
+        let isGenerating = object["isGenerating"] as? Bool ?? false
+        let hasConversationID = object["hasConversationID"] as? Bool ?? false
+        return "assistants=\(assistantCount), roles=\(roleCount), hasAssistant=\(hasAssistantRole), articles=\(articleCount), generating=\(isGenerating), conversation=\(hasConversationID)"
     }
 
     private func failureResponse(status: Int, message: String) -> ChatGPTBrowserResponse {

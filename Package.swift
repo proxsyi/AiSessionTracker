@@ -38,12 +38,12 @@ let package = Package(
         ),
         .testTarget(
             name: "CombinedSessionTrackerTests",
-            dependencies: ["CombinedSessionTracker"],
+            dependencies: ["CombinedSessionTracker", "TrackerDesignSystem"],
             path: "Tests/ClaudeSessionPingerTests"
         ),
         .testTarget(
             name: "GPTTrackerFeatureTests",
-            dependencies: ["GPTTrackerFeature"],
+            dependencies: ["GPTTrackerFeature", "TrackerDesignSystem"],
             path: "Tests/GPTSessionPingerTests"
         )
     ]

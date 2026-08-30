@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 BUILD_DIR=".build/release"
-DIST_DIR="dist"
+DIST_DIR="${DIST_DIR:-dist}"
 DIST_APP_DIR="${DIST_DIR}/${APP_NAME}.app"
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/session-pinger-build.XXXXXX")"
 APP_DIR="${WORK_DIR}/${APP_NAME}.app"

@@ -4,7 +4,7 @@ Three native macOS menu-bar apps for tracking Claude, Codex, and ChatGPT usage.
 
 | App | Purpose | Branch |
 | --- | --- | --- |
-| **AI Session Tracker** | Claude, Codex, and ChatGPT in one three-tab app | `main` |
+| **AI Session Tracker** | Claude, Codex, and ChatGPT usage and session pingers | `main` |
 | **Claude Session Pinger** | Claude usage, scheduled session pings, and optional wake support | `claude-session-pinger` |
 | **GPT Usage Tracker** | Codex and ChatGPT usage without session-pinging or wake features | `gpt-session-pinger` |
 
@@ -14,12 +14,15 @@ The mixed app keeps Claude and OpenAI logins, settings, alerts, and updater iden
 
 - Claude, Codex, and ChatGPT dashboards use matching tabs and cards.
 - Usage counters appear only when the signed-in service reports them.
-- Claude keeps its 5-hour scheduling and ping workflow.
+- Claude reuses one dedicated Claude chat for scheduled pings.
+- Codex reuses one dedicated ChatGPT Work task for scheduled pings.
+- ChatGPT reuses a separate dedicated cloud chat for scheduled pings.
 - Codex tracks rolling windows, weekly usage, code review, workspace state, and credits when reported.
 - ChatGPT tracks message, model, and feature allowances only when reported.
 - Every visible counter and alert can be enabled independently.
 - The menu-bar star and ring can use separate Claude and GPT percentage sources.
 - Command-U opens Claude; Command-I opens the last selected Codex or ChatGPT tab.
+- Clicking elsewhere closes the menu popover without hiding an open Settings window.
 
 ## Install
 
@@ -44,7 +47,8 @@ The app does not read Safari or Chrome cookies.
 - Settings stay in the provider-specific `UserDefaults` domains so standalone and mixed apps remain compatible.
 - Notifications are optional and controlled per usage counter and service state.
 - Launch at Login is optional.
-- Wake support exists only for Claude scheduling. The mixed app uses `com.proxsyi.sessiontracker.wake-helper`; the standalone Claude app uses its own isolated helper.
+- The mixed app has one shared wake helper. Claude and Codex can opt into wake scheduling independently without duplicating or replacing each other's events.
+- The standalone Claude app uses its own isolated wake helper.
 - GPT Usage Tracker has no wake helper or administrator installation.
 
 Credentials are not written to logs or plain-text files. The apps use consumer-web sessions and undocumented service endpoints, so provider changes can require an update.

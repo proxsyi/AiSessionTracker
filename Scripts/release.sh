@@ -12,8 +12,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
+if [[ "${ALLOW_SINGLE_APP_RELEASE:-0}" != "1" ]]; then
+    exec ./Scripts/release_train.sh
+fi
+
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist)
 TAG="tracker-v${VERSION}"
+RELEASE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/session-tracker-release.XXXXXX")"
+RELEASE_BUILD_DIR="${RELEASE_ROOT}/build"
+RELEASE_APP="${RELEASE_BUILD_DIR}/Session Tracker.app"
+RELEASE_ZIP="${RELEASE_ROOT}/SessionTracker.app.zip"
+VERIFY_DIR="${RELEASE_ROOT}/verify"
+trap 'rm -rf "${RELEASE_ROOT}"' EXIT
 
 echo "Releasing ${TAG}..."
 
@@ -22,16 +32,22 @@ if [[ -z "${NOTARY_PROFILE:-}" ]]; then
     exit 1
 fi
 
-DISTRIBUTION=1 ./Scripts/build_app.sh
+DISTRIBUTION=1 DIST_DIR="${RELEASE_BUILD_DIR}" ./Scripts/build_app.sh
 
 ASSET_NAME="SessionTracker.app.zip"
 rm -f "dist/${ASSET_NAME}"
-ditto -c -k --sequesterRsrc --keepParent "dist/Session Tracker.app" "dist/${ASSET_NAME}"
-xcrun notarytool submit "dist/${ASSET_NAME}" --keychain-profile "${NOTARY_PROFILE}" --wait
-xcrun stapler staple "dist/Session Tracker.app"
-spctl --assess --type execute --verbose=4 "dist/Session Tracker.app"
-rm -f "dist/${ASSET_NAME}"
-ditto -c -k --sequesterRsrc --keepParent "dist/Session Tracker.app" "dist/${ASSET_NAME}"
+COPYFILE_DISABLE=1 ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "${RELEASE_APP}" "${RELEASE_ZIP}"
+xcrun notarytool submit "${RELEASE_ZIP}" --keychain-profile "${NOTARY_PROFILE}" --wait
+xcrun stapler staple "${RELEASE_APP}"
+xcrun stapler validate "${RELEASE_APP}"
+spctl --assess --type execute --verbose=4 "${RELEASE_APP}"
+codesign --verify --deep --strict --verbose=2 "${RELEASE_APP}"
+rm -f "${RELEASE_ZIP}"
+COPYFILE_DISABLE=1 ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "${RELEASE_APP}" "${RELEASE_ZIP}"
+mkdir -p "${VERIFY_DIR}"
+ditto -x -k --norsrc --noextattr --noqtn "${RELEASE_ZIP}" "${VERIFY_DIR}"
+codesign --verify --deep --strict --verbose=2 "${VERIFY_DIR}/Session Tracker.app"
+cp "${RELEASE_ZIP}" "dist/${ASSET_NAME}"
 
 NOTES=$(awk "/^## v${VERSION}/{flag=1; next} /^## /{flag=0} flag" CHANGELOG.md)
 if [ -z "$NOTES" ]; then

@@ -12,8 +12,9 @@ enum CountdownFocus: String, CaseIterable, Identifiable {
     var label: String { self == .nextPossible ? "Next possible" : "Scheduled" }
 }
 
+@MainActor
 final class SettingsStore: ObservableObject {
-    private static let serviceDomain = "com.proxsyi.claudesessionpinger"
+    nonisolated private static let serviceDomain = "com.proxsyi.claudesessionpinger"
 
     /// Reuse the standalone Claude app's preference domain when this feature
     /// runs inside the combined tracker, without colliding with GPT settings.
@@ -24,7 +25,7 @@ final class SettingsStore: ObservableObject {
         return UserDefaults(suiteName: suiteName) ?? .standard
     }()
 
-    static func defaultsSuiteName(for bundleIdentifier: String?) -> String? {
+    nonisolated static func defaultsSuiteName(for bundleIdentifier: String?) -> String? {
         bundleIdentifier == serviceDomain ? nil : serviceDomain
     }
 
@@ -165,8 +166,10 @@ final class SettingsStore: ObservableObject {
     @Published var cookieHeader: String {
         didSet { persistWebSession() }
     }
+    @Published private(set) var credentialPersistenceError: String?
 
     init() {
+        credentialPersistenceError = nil
         let defaults = Self.serviceDefaults
         Self.migrateLegacyDefaultsIfNeeded(into: defaults)
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
@@ -216,7 +219,12 @@ final class SettingsStore: ObservableObject {
     }
 
     private func persistWebSession() {
-        try? KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
+        do {
+            try KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
+            credentialPersistenceError = nil
+        } catch {
+            credentialPersistenceError = error.localizedDescription
+        }
     }
 
     private static func migrateLegacyDefaultsIfNeeded(into defaults: UserDefaults) {

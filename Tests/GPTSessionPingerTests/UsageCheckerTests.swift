@@ -3,6 +3,13 @@ import XCTest
 @testable import GPTTrackerFeature
 
 final class UsageCheckerTests: XCTestCase {
+    func testPartialUsageWarningsAreNeverSilent() {
+        XCTAssertNil(AppState.partialUsageMessage(for: []))
+        XCTAssertEqual(
+            AppState.partialUsageMessage(for: ["Codex usage failed with HTTP 500."]),
+            "Some usage sources could not be refreshed. Codex usage failed with HTTP 500."
+        )
+    }
     func testAgenticWindowsAreMatchedAndLabeledByDuration() {
         let object: [String: Any] = [
             "rate_limit": [

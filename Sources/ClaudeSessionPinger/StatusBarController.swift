@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 import GPTTrackerFeature
+import TrackerDesignSystem
 
 @MainActor
 final class StatusBarController: NSObject, NSPopoverDelegate {
@@ -11,10 +12,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     private let appState: AppState
     private let gptFeature: GPTFeatureState
     private let selection: CombinedSelectionStore
-    private var countdownTimer: Timer?
+    private let countdownTimer = TrackerInvalidatingTimer()
     private var popoverOpenedAt = Date.distantPast
-    private var activationObserver: NSObjectProtocol?
-    private var deactivationObserver: NSObjectProtocol?
+    private var activationObserver: TrackerNotificationObservation?
+    private var deactivationObserver: TrackerNotificationObservation?
     private var shortcutKeyIsDown = false
     private var restoreTransientWorkItem: DispatchWorkItem?
     private var outsideClickMonitor: Any?
@@ -39,7 +40,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         super.init()
 
         popover.delegate = self
-        deactivationObserver = NotificationCenter.default.addObserver(
+        let deactivationToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: NSApp,
             queue: .main
@@ -53,6 +54,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
                 self.closePopover()
             }
         }
+        deactivationObserver = TrackerNotificationObservation(token: deactivationToken)
         let contentView = CombinedMenuBarContentView(gptFeature: gptFeature)
             .environmentObject(settings)
             .environmentObject(stats)
@@ -102,17 +104,11 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             }
             .store(in: &cancellables)
 
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+        countdownTimer.timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateButton()
             }
         }
-    }
-
-    deinit {
-        countdownTimer?.invalidate()
-        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
-        if let deactivationObserver { NotificationCenter.default.removeObserver(deactivationObserver) }
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {
@@ -195,23 +191,20 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
             return
         }
 
-        if let activationObserver {
-            NotificationCenter.default.removeObserver(activationObserver)
-        }
-        activationObserver = NotificationCenter.default.addObserver(
+        activationObserver?.invalidate()
+        let activationToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: NSApp,
             queue: .main
         ) { [weak self, weak button] _ in
             Task { @MainActor in
                 guard let self, let button else { return }
-                if let activationObserver = self.activationObserver {
-                    NotificationCenter.default.removeObserver(activationObserver)
-                    self.activationObserver = nil
-                }
+                self.activationObserver?.invalidate()
+                self.activationObserver = nil
                 self.showPopover(relativeTo: button)
             }
         }
+        activationObserver = TrackerNotificationObservation(token: activationToken)
         NSApp.activate(ignoringOtherApps: true)
 
         // AppKit normally sends didBecomeActive, but an accessory app can
@@ -222,10 +215,8 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
         // the normal notification path single-shot.
         DispatchQueue.main.async { [weak self, weak button] in
             guard let self, let button, !self.popover.isShown else { return }
-            if let activationObserver = self.activationObserver {
-                NotificationCenter.default.removeObserver(activationObserver)
-                self.activationObserver = nil
-            }
+            self.activationObserver?.invalidate()
+            self.activationObserver = nil
             self.showPopover(relativeTo: button)
         }
     }

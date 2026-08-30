@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added dedicated same-conversation pingers for Codex Work and ChatGPT Chat, using the live account model catalog and server-confirmed model metadata; Codex defaults to GPT-5.6 Sol with Light effort and ChatGPT defaults to GPT-5.3 Mini.
+- Added automatic recovery when a saved Claude conversation has ended while preserving the replacement conversation for later pings.
+- Unified Claude and Codex menu/settings composition through the shared design system, retained each provider's tab and scroll position, and kept Settings above normal windows without breaking outside-click menu dismissal.
+- Made wake support app-wide with independent Claude and Codex schedules in one signed helper, including stale-generation protection and legacy-event cleanup.
+- Stopped inventing missing ChatGPT usage percentages, preserved independently reported rolling, weekly, code-review, credit, workspace, model, and feature limits, and surfaced partial provider failures.
+- Hardened updates with repository, archive, bundle, Team ID, Developer ID, hardened-runtime, notarization, rollback, and extracted-ZIP verification.
+- Added one three-app release train and moved release assembly outside file-provider folders so Finder metadata cannot invalidate signed artifacts.
+- Closed timer, task, observer, login-item, and Keychain persistence lifecycle gaps found during the full audit.
+
 ## v0.1.3 (combined branch)
 
 - Unified the Claude, Codex, and ChatGPT dashboard hierarchy: usage and refresh, tracked-service status, then the real next-session or reset countdown.

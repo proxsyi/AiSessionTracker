@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import TrackerDesignSystem
 import UserNotifications
 
 @MainActor
@@ -28,8 +29,8 @@ final class AppState: ObservableObject {
     var toggleSettingsWindow: (() -> Void)?
     var requestSaveAndCloseSettings: (() -> Void)?
 
-    private var updateTimer: Timer?
-    private var usageTimer: Timer?
+    private let updateTimer = TrackerInvalidatingTimer()
+    private let usageTimer = TrackerInvalidatingTimer()
     private var usageBaselined = false
     private var notifiedThresholds: [String: Set<Int>] = [:]
     private var notifiedUnavailableTracks: Set<String> = []
@@ -48,18 +49,13 @@ final class AppState: ObservableObject {
         requestNotificationPermission()
     }
 
-    deinit {
-        updateTimer?.invalidate()
-        usageTimer?.invalidate()
-    }
-
     private func scheduleUsageRefreshes() {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
             await self?.refreshUsage()
         }
-        usageTimer?.invalidate()
-        usageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        usageTimer.timer?.invalidate()
+        usageTimer.timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { await self?.refreshUsage() }
         }
     }
@@ -81,7 +77,7 @@ final class AppState: ObservableObject {
                 cookieHeader: settings.effectiveCookieHeader
             )
             usage = fetched
-            usageError = nil
+            usageError = Self.partialUsageMessage(for: fetched.sourceWarnings)
             if let plan = fetched.planType, !plan.isEmpty {
                 settings.accountPlanType = plan
             }
@@ -96,7 +92,23 @@ final class AppState: ObservableObject {
             notifyServiceChangeIfNeeded(newStatus: status)
             serviceStatus = status
         }
+        await refreshModelCatalog()
         isRefreshingUsage = false
+    }
+
+    private func refreshModelCatalog() async {
+        guard settings.isConfigured,
+              let auth = try? await ChatGPTWebSession.resolve(
+                savedCredential: settings.sessionKey,
+                accountID: settings.organizationID,
+                cookieHeader: settings.effectiveCookieHeader
+              ),
+              let models = try? await ChatGPTModelCatalog.fetch(
+                auth: auth,
+                cookieHeader: settings.effectiveCookieHeader
+              ),
+              !models.isEmpty else { return }
+        settings.registerAvailablePingModels(models)
     }
 
     func clearAccountData() {
@@ -107,6 +119,11 @@ final class AppState: ObservableObject {
         notifiedUnavailableTracks.removeAll()
         lastResetDates.removeAll()
         pingStatus = nil
+    }
+
+    nonisolated static func partialUsageMessage(for warnings: [String]) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        return "Some usage sources could not be refreshed. " + warnings.joined(separator: " ")
     }
 
     func pingChatGPT() {
@@ -121,6 +138,8 @@ final class AppState: ObservableObject {
                     auth: auth,
                     cookieHeader: settings.effectiveCookieHeader,
                     model: settings.pingModel,
+                    modelTitle: settings.pingModelTitle(for: settings.pingModel),
+                    mode: .chat,
                     reasoningEffort: settings.pingReasoningEffort,
                     message: settings.pingMessage,
                     conversationID: settings.pingConversationID,
@@ -128,7 +147,13 @@ final class AppState: ObservableObject {
                 )
                 settings.pingConversationID = outcome.conversationID
                 settings.pingParentMessageID = outcome.parentMessageID
-                pingStatus = "Ping sent in the shared ChatGPT chat."
+                let confirmation = CodexSessionPinger.modelConfirmationText(
+                    requestedModel: settings.pingModel,
+                    requestedEffort: settings.pingReasoningEffort,
+                    confirmedModel: outcome.confirmedModel,
+                    confirmedEffort: outcome.confirmedReasoningEffort
+                )
+                pingStatus = "Ping sent in the shared ChatGPT chat. \(confirmation)"
             } catch {
                 pingStatus = (error as? ChatGPTPingError)?.localizedDescription ?? error.localizedDescription
             }
@@ -221,8 +246,8 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             await self?.checkForUpdates()
         }
-        updateTimer?.invalidate()
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60 * 24, repeats: true) { [weak self] _ in
+        updateTimer.timer?.invalidate()
+        updateTimer.timer = Timer.scheduledTimer(withTimeInterval: 60 * 60 * 24, repeats: true) { [weak self] _ in
             Task { await self?.checkForUpdates() }
         }
     }
@@ -270,9 +295,10 @@ final class AppState: ObservableObject {
             return
         }
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] notificationSettings in
+            let authorizationStatus = notificationSettings.authorizationStatus
             Task { @MainActor in
                 guard let self else { return }
-                switch notificationSettings.authorizationStatus {
+                switch authorizationStatus {
                 case .denied:
                     self.notificationTestStatus = "Notifications are turned off for GPT Usage Tracker in System Settings."
                 case .notDetermined:

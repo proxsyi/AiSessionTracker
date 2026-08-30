@@ -1,7 +1,9 @@
 import Foundation
+import TrackerDesignSystem
 
+@MainActor
 final class Scheduler {
-    private var timer: Timer?
+    private let timer = TrackerInvalidatingTimer()
     var onFire: (() -> Void)?
 
     func nextFireDate(after date: Date = Date(), slots: [ScheduleSlot]) -> Date? {
@@ -20,19 +22,21 @@ final class Scheduler {
     }
 
     func schedule(slots: [ScheduleSlot]) {
-        timer?.invalidate()
+        timer.timer?.invalidate()
         guard let next = nextFireDate(slots: slots) else { return }
         let interval = max(next.timeIntervalSinceNow, 1)
         let newTimer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
-            self?.onFire?()
-            self?.schedule(slots: slots)
+            Task { @MainActor in
+                self?.onFire?()
+                self?.schedule(slots: slots)
+            }
         }
         RunLoop.main.add(newTimer, forMode: .common)
-        timer = newTimer
+        timer.timer = newTimer
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        timer.timer?.invalidate()
+        timer.timer = nil
     }
 }

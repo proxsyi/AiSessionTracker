@@ -33,7 +33,7 @@ enum ClaudeClient {
                     timeoutSeconds: timeoutSeconds
                 )
             } catch let error as PingError {
-                if case .serverError(let code, _) = error, code == 404 {
+                if shouldReplaceConversation(after: error) {
                     // The dedicated chat was deleted or expired. Replace it
                     // once and continue instead of failing the scheduled ping.
                 } else {
@@ -56,6 +56,18 @@ enum ClaudeClient {
             message: message,
             cookieHeader: cookieHeader,
             timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    static func shouldReplaceConversation(after error: PingError) -> Bool {
+        guard case .serverError(let code, let body) = error else { return false }
+        if code == 404 { return true }
+        guard code == 400 else { return false }
+        let message = body.lowercased()
+        return message.contains("conversation") && (
+            message.contains("has been ended")
+                || message.contains("was deleted")
+                || message.contains("has expired")
         )
     }
 

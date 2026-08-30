@@ -93,6 +93,10 @@ public final class GPTFeatureState: ObservableObject {
         codexSessionPinger.refreshWakeSupportState()
     }
 
+    public func setLaunchAtLoginPreference(_ enabled: Bool) {
+        settings.launchAtLogin = enabled
+    }
+
     public func configureWindowActions(
         close: @escaping () -> Void,
         togglePopover: @escaping () -> Void

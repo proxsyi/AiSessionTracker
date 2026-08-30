@@ -1,6 +1,21 @@
 import AppKit
 import Foundation
+import TrackerDesignSystem
 import UserNotifications
+
+private actor CodexWakeScheduleCoordinator {
+    private var latestGeneration = 0
+
+    func synchronize(
+        generation: Int,
+        enabled: Bool,
+        slots: [CodexSessionPinger.ScheduleSlot]
+    ) throws -> CodexWakeScheduleSummary? {
+        guard generation >= latestGeneration else { return nil }
+        latestGeneration = generation
+        return try CodexWakeSupport.syncSchedule(enabled: enabled, slots: slots)
+    }
+}
 
 /// A combined-app-only scheduler for a light Codex prompt. Its state is kept
 /// separate from the normal ChatGPT pinger so each service always reuses its
@@ -50,7 +65,9 @@ final class CodexSessionPinger: ObservableObject {
         static let countdownFocus = "codexSessionPingerCountdownFocus"
         static let autoStartAvailableSessions = "codexSessionPingerAutoStartAvailableSessions"
         static let history = "codexSessionPingerHistory"
+        static let confirmedModelRecordingVersion = "codexSessionPingerConfirmedModelRecordingVersion"
         static let enableScheduledWake = "codexSessionPingerEnableScheduledWake"
+        static let workComposerMigrationVersion = "codexSessionPingerWorkComposerMigrationVersion"
     }
 
     private static let defaults = UserDefaults(suiteName: "com.proxsyi.sessiontracker") ?? .standard
@@ -87,26 +104,37 @@ final class CodexSessionPinger: ObservableObject {
 
     private let settings: SettingsStore
     private let hostAllowsPinging: Bool
-    private var timer: Timer?
+    private let timer = TrackerInvalidatingTimer()
     private var rollingFiveHourPercent: Int?
     private var rollingFiveHourReset: Date?
     private var previousRollingFiveHourPercent: Int?
     private var previousRollingFiveHourReset: Date?
     private var usageBaselined = false
     private var autoStartPending = false
-    private var wakeSyncTask: Task<Void, Never>?
+    private var wakeSyncGeneration = 0
+    private let wakeScheduleCoordinator = CodexWakeScheduleCoordinator()
     private var automaticWakeTask: Task<Void, Never>?
 
     init(settings: SettingsStore, hostAllowsPinging: Bool = false) {
         self.settings = settings
         self.hostAllowsPinging = hostAllowsPinging
         let defaults = Self.defaults
+        let workComposerMigrationVersion = defaults.integer(forKey: Keys.workComposerMigrationVersion)
+        let requiresWorkComposerMigration = workComposerMigrationVersion < 1
+        let requiresLowestWorkSelectionMigration = workComposerMigrationVersion < 2
         enabled = defaults.object(forKey: Keys.enabled) as? Bool ?? true
-        model = defaults.string(forKey: Keys.model) ?? "gpt-5.4-mini"
-        reasoningEffort = defaults.string(forKey: Keys.reasoningEffort) ?? "low"
+        let storedModel = defaults.string(forKey: Keys.model)
+        let selectedModel = requiresLowestWorkSelectionMigration || storedModel == nil || storedModel?.hasSuffix("-wm") != true
+            ? ChatGPTModelCatalog.lowestUsageWorkModelSlug
+            : storedModel!
+        model = selectedModel
+        let storedEffort = defaults.string(forKey: Keys.reasoningEffort)
+        reasoningEffort = requiresLowestWorkSelectionMigration || !["min", "standard", "extended"].contains(storedEffort ?? "")
+            ? "min"
+            : storedEffort!
         message = defaults.string(forKey: Keys.message) ?? "Say 1"
-        conversationID = defaults.string(forKey: Keys.conversationID) ?? ""
-        parentMessageID = defaults.string(forKey: Keys.parentMessageID) ?? ""
+        conversationID = requiresWorkComposerMigration ? "" : (defaults.string(forKey: Keys.conversationID) ?? "")
+        parentMessageID = requiresWorkComposerMigration ? "" : (defaults.string(forKey: Keys.parentMessageID) ?? "")
         if let data = defaults.data(forKey: Keys.slots),
            let decoded = try? JSONDecoder().decode([ScheduleSlot].self, from: data),
            Self.validationMessage(for: decoded) == nil {
@@ -127,11 +155,32 @@ final class CodexSessionPinger: ObservableObject {
         enableScheduledWake = defaults.bool(forKey: Keys.enableScheduledWake)
         if let data = defaults.data(forKey: Keys.history),
            let decoded = try? JSONDecoder().decode([PingRecord].self, from: data) {
-            records = Array(decoded.suffix(50))
+            let recent = Array(decoded.suffix(50))
+            if defaults.integer(forKey: Keys.confirmedModelRecordingVersion) < 1 {
+                records = recent.map {
+                    PingRecord(id: $0.id, date: $0.date, success: $0.success, summary: $0.summary, model: nil)
+                }
+                defaults.set(1, forKey: Keys.confirmedModelRecordingVersion)
+                if let migrated = try? JSONEncoder().encode(records) {
+                    defaults.set(migrated, forKey: Keys.history)
+                }
+            } else {
+                records = recent
+            }
         } else {
             records = []
+            defaults.set(1, forKey: Keys.confirmedModelRecordingVersion)
         }
         activeModel = records.last(where: { $0.success })?.model
+        if requiresLowestWorkSelectionMigration {
+            defaults.set(2, forKey: Keys.workComposerMigrationVersion)
+            defaults.set(selectedModel, forKey: Keys.model)
+            defaults.set(reasoningEffort, forKey: Keys.reasoningEffort)
+        }
+        if requiresWorkComposerMigration {
+            defaults.removeObject(forKey: Keys.conversationID)
+            defaults.removeObject(forKey: Keys.parentMessageID)
+        }
         if hostAllowsPinging {
             NSWorkspace.shared.notificationCenter.addObserver(
                 self,
@@ -150,8 +199,6 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     deinit {
-        timer?.invalidate()
-        wakeSyncTask?.cancel()
         automaticWakeTask?.cancel()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         NotificationCenter.default.removeObserver(self)
@@ -239,7 +286,7 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     func reschedule() {
-        timer?.invalidate()
+        timer.timer?.invalidate()
         guard hostAllowsPinging else {
             nextFireDate = nil
             return
@@ -253,11 +300,10 @@ final class CodexSessionPinger: ObservableObject {
         let timer = Timer(timeInterval: max(next.timeIntervalSinceNow, 1), repeats: false) { [weak self] _ in
             Task { @MainActor in
                 _ = await self?.sendPing(manual: false)
-                self?.reschedule()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        self.timer.timer = timer
         synchronizeWakeSchedule()
     }
 
@@ -297,6 +343,8 @@ final class CodexSessionPinger: ObservableObject {
                     auth: auth,
                     cookieHeader: settings.effectiveCookieHeader,
                     model: model,
+                    modelTitle: settings.pingModelTitle(for: model),
+                    mode: .work,
                     reasoningEffort: reasoningEffort,
                     message: message,
                     conversationID: conversationID,
@@ -305,9 +353,15 @@ final class CodexSessionPinger: ObservableObject {
                 conversationID = outcome.conversationID
                 parentMessageID = outcome.parentMessageID
                 lastSuccess = Date()
-                activeModel = model
-                status = manual ? "Codex ping sent in its dedicated chat." : "Scheduled Codex ping sent in its dedicated chat."
-                addRecord(success: true, summary: "Got reply", model: model)
+                activeModel = outcome.confirmedModel
+                let confirmation = Self.modelConfirmationText(
+                    requestedModel: model,
+                    requestedEffort: reasoningEffort,
+                    confirmedModel: outcome.confirmedModel,
+                    confirmedEffort: outcome.confirmedReasoningEffort
+                )
+                status = (manual ? "Codex ping sent in its dedicated chat. " : "Scheduled Codex ping sent in its dedicated chat. ") + confirmation
+                addRecord(success: true, summary: "Got reply", model: outcome.confirmedModel)
                 Self.defaults.set(lastSuccess, forKey: Keys.lastSuccess)
                 save()
                 if notifySessionStarted {
@@ -501,7 +555,8 @@ final class CodexSessionPinger: ObservableObject {
 
     private func synchronizeWakeSchedule() {
         guard hostAllowsPinging else { return }
-        wakeSyncTask?.cancel()
+        wakeSyncGeneration += 1
+        let generation = wakeSyncGeneration
         let wakeEnabled = enabled && enableScheduledWake
         let wakeSlots = slots
         wakeHelperInstalled = CodexWakeSupport.isInstalled
@@ -509,12 +564,15 @@ final class CodexSessionPinger: ObservableObject {
             wakeSupportStatus = "Enabled, but the one-time administrator installation is still required."
             return
         }
-        wakeSyncTask = Task { [weak self] in
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                let summary = try await Task.detached(priority: .utility) {
-                    try CodexWakeSupport.syncSchedule(enabled: wakeEnabled, slots: wakeSlots)
-                }.value
-                guard !Task.isCancelled, let self else { return }
+                guard let summary = try await self.wakeScheduleCoordinator.synchronize(
+                    generation: generation,
+                    enabled: wakeEnabled,
+                    slots: wakeSlots
+                ) else { return }
+                guard generation == self.wakeSyncGeneration else { return }
                 if wakeEnabled {
                     self.wakeSupportStatus = summary.nextWake.map {
                         "\(summary.eventCount) Codex wakes scheduled. Next: \($0.formatted(date: .abbreviated, time: .shortened))."
@@ -523,8 +581,8 @@ final class CodexSessionPinger: ObservableObject {
                     self.wakeSupportStatus = "Scheduled Codex wake is off."
                 }
             } catch {
-                guard !Task.isCancelled else { return }
-                self?.wakeSupportStatus = error.localizedDescription
+                guard generation == self.wakeSyncGeneration else { return }
+                self.wakeSupportStatus = error.localizedDescription
             }
         }
     }
@@ -533,6 +591,27 @@ final class CodexSessionPinger: ObservableObject {
         records.append(PingRecord(id: UUID(), date: Date(), success: success, summary: summary, model: model))
         if records.count > 50 { records.removeFirst(records.count - 50) }
         if let data = try? JSONEncoder().encode(records) { Self.defaults.set(data, forKey: Keys.history) }
+    }
+
+    nonisolated static func modelConfirmationText(
+        requestedModel: String,
+        requestedEffort: String,
+        confirmedModel: String?,
+        confirmedEffort: String?
+    ) -> String {
+        guard let confirmedModel else {
+            return "Requested \(requestedModel) with \(requestedEffort) effort; ChatGPT did not expose confirmation."
+        }
+        if confirmedModel != requestedModel {
+            let effort = confirmedEffort.map { " with \($0) effort" } ?? ""
+            return "Requested \(requestedModel), but ChatGPT confirmed \(confirmedModel)\(effort)."
+        }
+        if requestedEffort != "none", requestedEffort != "default",
+           let confirmedEffort, confirmedEffort != requestedEffort {
+            return "ChatGPT confirmed \(confirmedModel), but used \(confirmedEffort) instead of \(requestedEffort) effort."
+        }
+        let effort = confirmedEffort.map { " with \($0) effort" } ?? ""
+        return "ChatGPT confirmed \(confirmedModel)\(effort)."
     }
 
     private func isRetryable(_ error: Error) -> Bool {

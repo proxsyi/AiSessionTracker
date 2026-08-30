@@ -43,7 +43,7 @@ enum WakeSupportError: LocalizedError {
 /// who installed it. The helper accepts only fixed wake, cancel, and sleep
 /// operations and never executes caller-supplied shell commands.
 enum WakeSupport {
-    static let helperVersion = "3"
+    static let helperVersion = "4"
     static let helperName = "com.proxsyi.sessiontracker.wake-helper"
     static let installedHelperURL = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/\(helperName)")
     static let wakeLeadTime: TimeInterval = 5
@@ -134,11 +134,9 @@ enum WakeSupport {
 
     static func syncSchedule(enabled: Bool, slots: [ScheduleSlot], now: Date = Date()) throws -> WakeScheduleSummary {
         let defaults = UserDefaults.standard
-        let previousWakeEpochs = defaults.array(forKey: scheduledWakeEpochsKey) as? [Double] ?? []
         if isInstalled {
-            for epoch in previousWakeEpochs {
-                _ = try? runHelper(["cancel", "claude", timestampArgument(epoch)])
-            }
+            try runHelper(["purge", "claude"])
+            try runHelper(["purge", "legacy"])
         }
         defaults.removeObject(forKey: scheduledWakeEpochsKey)
         defaults.removeObject(forKey: scheduledPingEpochsKey)

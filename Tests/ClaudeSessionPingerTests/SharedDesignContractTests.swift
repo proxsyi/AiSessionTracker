@@ -78,13 +78,16 @@ final class SharedDesignContractTests: XCTestCase {
             "Sources/GPTSessionPinger/CodexWakeSupport.swift"
         ))
 
-        XCTAssertTrue(helper.contains("#define HELPER_VERSION \"3\""))
+        XCTAssertTrue(helper.contains("#define HELPER_VERSION \"4\""))
         XCTAssertTrue(helper.contains("com.proxsyi.sessiontracker.claude"))
         XCTAssertTrue(helper.contains("com.proxsyi.sessiontracker.codex"))
+        XCTAssertTrue(helper.contains("com.proxsyi.sessiontracker\""))
         XCTAssertTrue(claudeWake.contains("[\"schedule\", \"claude\""))
         XCTAssertTrue(claudeWake.contains("[\"cancel\", \"claude\""))
+        XCTAssertTrue(claudeWake.contains("[\"purge\", \"claude\""))
         XCTAssertTrue(codexWake.contains("[\"schedule\", \"codex\""))
         XCTAssertTrue(codexWake.contains("[\"cancel\", \"codex\""))
+        XCTAssertTrue(codexWake.contains("[\"purge\", \"codex\""))
     }
 
     func testCombinedSettingsKeepProviderNavigationMountedAndCentralizeWakeSetup() throws {

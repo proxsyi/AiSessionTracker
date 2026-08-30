@@ -22,11 +22,24 @@ Every release train must build, test, sign, notarize, and publish all three
 artifacts together. Never substitute one app's zip or update feed for another.
 Use Developer ID Application signing with hardened runtime and a notarization
 profile for public releases; Apple Development signing is local testing only.
-Before shipping, verify each updater only accepts its own asset and bundle ID,
-and verify the Claude wake helper is isolated from the combined app before
-enabling wake support in both.
+Run `NOTARY_PROFILE="..." ./Scripts/release_train.sh` from clean `main`; the
+script verifies every app before it publishes any tag or asset. The legacy
+`Scripts/release.sh` delegates to this train. `ALLOW_SINGLE_APP_RELEASE=1` is
+reserved for repairing an already-published release, not normal releases.
+Before shipping, verify each updater only accepts its own asset, repository,
+bundle ID, Team ID, signature, and notarization ticket. Extract every finished
+ZIP and strictly verify the app inside it before publishing. Build release
+artifacts outside file-provider folders so Finder metadata cannot invalidate a
+signature after packaging.
+
+The mixed app owns one shared wake helper. Claude and Codex scheduling must use
+separate provider identifiers in that helper, and changing one provider's
+schedule must never cancel the other's events. The standalone Claude helper is
+separate from the mixed helper.
 
 Branch READMEs describe only the app built from that branch. GPT Usage Tracker
 must never include session-pinging, scheduling, wake support, a privileged
-helper, or Claude credentials. The mixed and Claude branches may include their
-own isolated Claude wake helpers.
+helper, or Claude credentials. The mixed app may ping Claude, Codex, and
+ChatGPT; Codex must use its dedicated ChatGPT Work task, while ChatGPT must use
+a different dedicated cloud chat. The mixed and Claude branches may include
+their appropriate isolated wake helpers.

@@ -39,7 +39,7 @@ enum CodexWakeSupportError: LocalizedError {
 /// schedule and test records. Cancelling or rescheduling either provider can
 /// therefore never remove the other provider's wake events.
 enum CodexWakeSupport {
-    static let helperVersion = "3"
+    static let helperVersion = "4"
     static let helperName = "com.proxsyi.sessiontracker.wake-helper"
     static let installedHelperURL = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/\(helperName)")
     static let wakeLeadTime: TimeInterval = 5
@@ -122,9 +122,9 @@ enum CodexWakeSupport {
 
     static func syncSchedule(enabled: Bool, slots: [CodexSessionPinger.ScheduleSlot], now: Date = Date()) throws -> CodexWakeScheduleSummary {
         let defaults = UserDefaults.standard
-        let previous = defaults.array(forKey: scheduledWakeEpochsKey) as? [Double] ?? []
         if isInstalled {
-            for epoch in previous { _ = try? runHelper(["cancel", "codex", timestampArgument(epoch)]) }
+            try runHelper(["purge", "codex"])
+            try runHelper(["purge", "legacy"])
         }
         defaults.removeObject(forKey: scheduledWakeEpochsKey)
         defaults.removeObject(forKey: scheduledPingEpochsKey)

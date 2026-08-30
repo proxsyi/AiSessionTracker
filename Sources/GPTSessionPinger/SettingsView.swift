@@ -42,8 +42,8 @@ struct SettingsView: View {
     @State private var showingLogin = false
     @State private var showKeys = false
     @State private var isClearingLogin = false
-    @State private var pingModel = "gpt-5.4-mini"
-    @State private var pingReasoningEffort = "low"
+    @State private var pingModel = ChatGPTModelCatalog.lowestUsageModelSlug
+    @State private var pingReasoningEffort = "none"
     @State private var pingMessage = "Say 1"
     @State private var isTestingConnection = false
     @State private var connectionTestResult: String?
@@ -162,6 +162,12 @@ struct SettingsView: View {
                 Button("Log in to ChatGPT") { showingLogin = true }.gptPrimaryButton()
                     .help("Signs in through this app's private browser and stores the session in Keychain.")
             }
+            if let error = settings.credentialPersistenceError {
+                Text(error)
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button { showKeys.toggle() } label: {
                 Label("Keys", systemImage: showKeys ? "chevron.down" : "chevron.right")
             }
@@ -200,20 +206,25 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Model")
                 Picker("Model", selection: $pingModel) {
-                    Text("GPT-5.4 mini (recommended) — gpt-5.4-mini").tag("gpt-5.4-mini")
+                    ForEach(pingModelOptions(for: pingModel, workMode: false)) { option in
+                        Text(modelPickerTitle(option)).tag(option.slug)
+                    }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .tint(GPTTheme.accent)
                 .help("Uses this model for every ping in one shared ChatGPT conversation.")
+                .onChange(of: pingModel) { selected in
+                    pingReasoningEffort = normalizedEffort(pingReasoningEffort, for: selected, workMode: false)
+                }
             }
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Reasoning effort")
                 Picker("Reasoning effort", selection: $pingReasoningEffort) {
-                    Text("Low (recommended)").tag("low")
-                    Text("None").tag("none")
-                    Text("Medium").tag("medium")
+                    ForEach(effortOptions(for: pingModel, workMode: false)) { effort in
+                        Text(effort.title).tag(effort.id)
+                    }
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
@@ -243,17 +254,22 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Model")
                 Picker("Model", selection: $codexSessionPinger.model) {
-                    Text("GPT-5.4 mini (recommended) — gpt-5.4-mini").tag("gpt-5.4-mini")
+                    ForEach(pingModelOptions(for: codexSessionPinger.model, workMode: true)) { option in
+                        Text(modelPickerTitle(option)).tag(option.slug)
+                    }
                 }
                 .labelsHidden().pickerStyle(.menu).tint(GPTTheme.accent)
                 .help("Uses the lowest-cost configured model with the selected reasoning effort.")
+                .onChange(of: codexSessionPinger.model) { selected in
+                    codexSessionPinger.reasoningEffort = normalizedEffort(codexSessionPinger.reasoningEffort, for: selected, workMode: true)
+                }
             }
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Reasoning effort")
                 Picker("Reasoning effort", selection: $codexSessionPinger.reasoningEffort) {
-                    Text("Low (recommended)").tag("low")
-                    Text("None").tag("none")
-                    Text("Medium").tag("medium")
+                    ForEach(effortOptions(for: codexSessionPinger.model, workMode: true)) { effort in
+                        Text(effort.title).tag(effort.id)
+                    }
                 }
                 .labelsHidden().pickerStyle(.menu).tint(GPTTheme.accent)
             }
@@ -504,7 +520,9 @@ struct SettingsView: View {
     private var appSection: some View {
         VStack(alignment: .leading, spacing: 11) {
             SectionHeader(text: "App")
-            toggleRow("Launch at login", isOn: $launchAtLogin)
+            if !combinedMode {
+                toggleRow("Launch at login", isOn: $launchAtLogin)
+            }
             toggleRow("Command-I opens the tracker", isOn: $enableCommandIShortcut)
             if combinedMode && settingsScope == .codex {
                 toggleRow(
@@ -748,6 +766,46 @@ struct SettingsView: View {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "—"
     }
 
+    private func pingModelOptions(for selectedSlug: String, workMode: Bool) -> [ChatGPTModelOption] {
+        var models = settings.availablePingModels.filter { $0.isWorkMode == workMode }
+        if models.isEmpty {
+            models = [ChatGPTModelOption(
+                slug: workMode ? ChatGPTModelCatalog.lowestUsageWorkModelSlug : ChatGPTModelCatalog.lowestUsageModelSlug,
+                title: workMode ? ChatGPTModelCatalog.lowestUsageWorkModelTitle : ChatGPTModelCatalog.lowestUsageModelTitle,
+                reasoningType: workMode ? "reasoning" : "none",
+                thinkingEfforts: workMode ? [ChatGPTThinkingEffort(id: "min", title: "Light")] : [],
+                isWorkMode: workMode
+            )]
+        }
+        if !models.contains(where: { $0.slug == selectedSlug }) {
+            models.append(ChatGPTModelOption(
+                slug: selectedSlug,
+                title: ChatGPTModelCatalog.fallbackTitle(for: selectedSlug),
+                reasoningType: selectedSlug.contains("thinking") || selectedSlug.contains("t-mini") ? "reasoning" : "none",
+                thinkingEfforts: [],
+                isWorkMode: selectedSlug.hasSuffix("-wm")
+            ))
+        }
+        return models
+    }
+
+    private func modelPickerTitle(_ option: ChatGPTModelOption) -> String {
+        let recommended = [ChatGPTModelCatalog.lowestUsageModelSlug, ChatGPTModelCatalog.lowestUsageWorkModelSlug].contains(option.slug)
+            ? " (lowest usage)"
+            : ""
+        return "\(option.title)\(recommended) — \(option.slug)"
+    }
+
+    private func effortOptions(for slug: String, workMode: Bool) -> [ChatGPTThinkingEffort] {
+        pingModelOptions(for: slug, workMode: workMode).first(where: { $0.slug == slug })?.selectableEfforts
+            ?? [ChatGPTThinkingEffort(id: "default", title: "Model default")]
+    }
+
+    private func normalizedEffort(_ effort: String, for slug: String, workMode: Bool) -> String {
+        let options = effortOptions(for: slug, workMode: workMode)
+        return options.contains(where: { $0.id == effort }) ? effort : (options.first?.id ?? "default")
+    }
+
     private func loadCurrentValues() {
         showCategoryTabs = settings.showCategoryTabs
         showHistoryChart = settings.showHistoryChart
@@ -784,14 +842,20 @@ struct SettingsView: View {
         }
         settings.enableCommandIShortcut = enableCommandIShortcut
         settings.preferClearGlass = preferClearGlass
-        settings.launchAtLogin = launchAtLogin
+        if !combinedMode {
+            settings.launchAtLogin = launchAtLogin
+        }
         settings.notifyOnServiceOutage = notifyOnServiceOutage
         settings.notifyOnServiceDegraded = notifyOnServiceDegraded
         settings.autoUpdateEnabled = autoUpdate
-        settings.pingModel = pingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "gpt-5.4-mini" : pingModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        settings.pingReasoningEffort = pingReasoningEffort
+        settings.pingModel = pingModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? ChatGPTModelCatalog.lowestUsageModelSlug
+            : pingModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.pingReasoningEffort = normalizedEffort(pingReasoningEffort, for: settings.pingModel, workMode: false)
         settings.pingMessage = pingMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Say 1" : pingMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        LoginItemManager.setEnabled(launchAtLogin)
+        if !combinedMode {
+            LoginItemManager.setEnabled(launchAtLogin)
+        }
         if closeWindow { appState.closeSettingsWindow?() }
         if showPopoverAfterClose {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { appState.requestTogglePopover?() }

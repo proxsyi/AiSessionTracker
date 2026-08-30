@@ -199,6 +199,12 @@ struct SettingsView: View {
             } else if !settings.sessionKey.isEmpty {
                 caption("Using a previously captured session (\(settings.maskedSessionKey)).")
             }
+            if let error = settings.credentialPersistenceError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             if isFetchingOrganization {
                 caption("Detecting your organization ID\u{2026}")
@@ -541,7 +547,9 @@ struct SettingsView: View {
     private var appSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "App")
-            toggleRow("Launch at login", isOn: $launchAtLogin)
+            if onOpenSystemSettings == nil {
+                toggleRow("Launch at login", isOn: $launchAtLogin)
+            }
             toggleRow("Command-U opens menu", isOn: $enableCommandUShortcut)
             toggleRow(
                 "Wake Mac for scheduled pings",
@@ -730,7 +738,9 @@ struct SettingsView: View {
         settings.scheduleSlots = slots.sorted {
             ($0.hour, $0.minute) < ($1.hour, $1.minute)
         }
-        settings.launchAtLogin = launchAtLogin
+        if onOpenSystemSettings == nil {
+            settings.launchAtLogin = launchAtLogin
+        }
         settings.notifyOnFailure = notifyOnFailure
         settings.notifyOnServiceOutage = notifyOnServiceOutage
         settings.notifyOnServiceDegraded = notifyOnServiceDegraded
@@ -748,7 +758,9 @@ struct SettingsView: View {
         settings.enableScheduledWake = enableScheduledWake
         settings.preferClearGlass = preferClearGlass
         settings.autoUpdateEnabled = autoUpdate
-        LoginItemManager.setEnabled(launchAtLogin)
+        if onOpenSystemSettings == nil {
+            LoginItemManager.setEnabled(launchAtLogin)
+        }
         appState.rescheduleTimer()
         appState.startAvailableSessionIfNeeded()
         if closeWindow { appState.closeSettingsWindow?() }

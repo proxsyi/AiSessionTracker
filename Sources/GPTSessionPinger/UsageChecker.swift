@@ -55,6 +55,7 @@ struct GPTUsage: Equatable {
     var blockedFeatures: [String]
     var planType: String?
     var fetchedAt: Date
+    var sourceWarnings: [String] = []
 
     var rollingFiveHourTrack: GPTUsageTrack? {
         tracks.first { $0.id.hasPrefix("codex-") && $0.windowSeconds == 18_000 }
@@ -113,39 +114,46 @@ enum UsageChecker {
         var planType = auth.planType
         var successfulSourceCount = 0
         var sawSessionFailure = false
+        var sourceWarnings: [String] = []
 
-        if let request = ChatGPTWebSession.makeBackendRequest(
+        let agenticRequest = ChatGPTWebSession.makeBackendRequest(
             path: "/wham/usage",
             auth: auth,
             cookieHeader: cookies
-        ), let (data, response) = try? await perform(request),
-           let http = response as? HTTPURLResponse {
-            if (200...299).contains(http.statusCode),
-               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                successfulSourceCount += 1
-                tracks.append(contentsOf: parseAgenticTracks(object))
-                planType = (object["plan_type"] as? String) ?? planType
-            } else if [401, 403].contains(http.statusCode) {
-                sawSessionFailure = true
-            }
+        )
+        switch await fetchJSONSource(agenticRequest, name: "Codex usage") {
+        case .success(let object):
+            successfulSourceCount += 1
+            tracks.append(contentsOf: parseAgenticTracks(object))
+            planType = (object["plan_type"] as? String) ?? planType
+        case .sessionExpired:
+            sawSessionFailure = true
+        case .failed(let warning):
+            sourceWarnings.append(warning)
+        case .unavailable:
+            break
         }
 
-        if let accountID = auth.accountID,
-           let request = ChatGPTWebSession.makeBackendRequest(
-               path: "/accounts/\(accountID)/remaining_balance",
-               auth: auth,
-               cookieHeader: cookies
-           ), let (data, response) = try? await perform(request),
-           let http = response as? HTTPURLResponse {
-            if (200...299).contains(http.statusCode),
-               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let creditTrack = parseCreditBalanceTrack(object) {
-                successfulSourceCount += 1
+        let creditRequest = auth.accountID.flatMap { accountID in
+            ChatGPTWebSession.makeBackendRequest(
+                path: "/accounts/\(accountID)/remaining_balance",
+                auth: auth,
+                cookieHeader: cookies
+            )
+        }
+        switch await fetchJSONSource(creditRequest, name: "Purchased credits") {
+        case .success(let object):
+            successfulSourceCount += 1
+            if let creditTrack = parseCreditBalanceTrack(object) {
                 tracks.removeAll { $0.preferenceID == creditTrack.preferenceID }
                 tracks.append(creditTrack)
-            } else if [401, 403].contains(http.statusCode) {
-                sawSessionFailure = true
             }
+        case .sessionExpired:
+            sawSessionFailure = true
+        case .failed(let warning):
+            sourceWarnings.append(warning)
+        case .unavailable:
+            break
         }
 
         let initBody = try JSONSerialization.data(withJSONObject: [
@@ -155,22 +163,24 @@ enum UsageChecker {
             "timezone_offset_min": TimeZone.current.secondsFromGMT() / -60,
             "system_hints": []
         ])
-        if let request = ChatGPTWebSession.makeBackendRequest(
+        let chatGPTRequest = ChatGPTWebSession.makeBackendRequest(
             path: "/conversation/init",
             method: "POST",
             auth: auth,
             cookieHeader: cookies,
             body: initBody
-        ), let (data, response) = try? await perform(request),
-           let http = response as? HTTPURLResponse {
-            if (200...299).contains(http.statusCode),
-               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                successfulSourceCount += 1
-                tracks.append(contentsOf: parseChatGPTTracks(object))
-                blockedFeatures = stringArray(object["blocked_features"])
-            } else if [401, 403].contains(http.statusCode) {
-                sawSessionFailure = true
-            }
+        )
+        switch await fetchJSONSource(chatGPTRequest, name: "ChatGPT limits") {
+        case .success(let object):
+            successfulSourceCount += 1
+            tracks.append(contentsOf: parseChatGPTTracks(object))
+            blockedFeatures = stringArray(object["blocked_features"])
+        case .sessionExpired:
+            sawSessionFailure = true
+        case .failed(let warning):
+            sourceWarnings.append(warning)
+        case .unavailable:
+            break
         }
 
         guard successfulSourceCount > 0 else {
@@ -181,7 +191,8 @@ enum UsageChecker {
             tracks: deduplicated(tracks),
             blockedFeatures: blockedFeatures,
             planType: planType,
-            fetchedAt: Date()
+            fetchedAt: Date(),
+            sourceWarnings: sourceWarnings
         )
     }
 
@@ -207,6 +218,34 @@ enum UsageChecker {
         do { return try await URLSession.shared.data(for: request) }
         catch let error as URLError { throw UsageError.network(error) }
         catch { throw UsageError.unexpectedResponse }
+    }
+
+    private enum JSONSourceResult {
+        case success([String: Any])
+        case unavailable
+        case sessionExpired
+        case failed(String)
+    }
+
+    private static func fetchJSONSource(_ request: URLRequest?, name: String) async -> JSONSourceResult {
+        guard let request else { return .unavailable }
+        do {
+            let (data, response) = try await perform(request)
+            guard let http = response as? HTTPURLResponse else {
+                return .failed("\(name) returned an invalid response.")
+            }
+            if [401, 403].contains(http.statusCode) { return .sessionExpired }
+            if [400, 404].contains(http.statusCode) { return .unavailable }
+            guard (200...299).contains(http.statusCode) else {
+                return .failed("\(name) failed with HTTP \(http.statusCode).")
+            }
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failed("\(name) returned unreadable data.")
+            }
+            return .success(object)
+        } catch {
+            return .failed("\(name) could not be refreshed: \(error.localizedDescription)")
+        }
     }
 
     static func parseAgenticTracks(_ object: [String: Any]) -> [GPTUsageTrack] {
