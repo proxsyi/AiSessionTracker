@@ -220,7 +220,7 @@ final class SettingsStore: ObservableObject {
         availablePingModels = models
         if let selected = models.first(where: { $0.slug == pingModel && !$0.isWorkMode }) {
             normalizePingEffort(for: selected)
-        } else if let lowest = models.first(where: { $0.slug == ChatGPTModelCatalog.lowestUsageModelSlug && !$0.isWorkMode }) {
+        } else if let lowest = ChatGPTModelCatalog.lowestUsageOption(in: models, workMode: false) {
             pingModel = lowest.slug
             normalizePingEffort(for: lowest)
         }

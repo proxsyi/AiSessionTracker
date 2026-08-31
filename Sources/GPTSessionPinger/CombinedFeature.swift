@@ -89,6 +89,64 @@ public final class GPTFeatureState: ObservableObject {
         await appState.refreshUsage()
     }
 
+    public func modelCatalogReport() async -> String {
+        do {
+            let auth = try await ChatGPTWebSession.resolve(savedCredential: settings.sessionKey,
+                accountID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader)
+            let payload = try await ChatGPTModelCatalog.fetchPayload(auth: auth, cookieHeader: settings.effectiveCookieHeader)
+            let fields = ["slug", "title", "reasoning_type", "is_work_mode_model", "thinking_efforts"]
+            let models = (payload["models"] as? [[String: Any]] ?? []).map { model in
+                model.filter { fields.contains($0.key) }
+            }
+            let data = try JSONSerialization.data(withJSONObject: models, options: [.sortedKeys])
+            return String(decoding: data, as: UTF8.self)
+        } catch { return "Model catalog unavailable: \(error.localizedDescription)" }
+    }
+
+    public func verifyLowestModelPings() async -> String {
+        do {
+            let auth = try await ChatGPTWebSession.resolve(savedCredential: settings.sessionKey,
+                accountID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader)
+            let models = try await ChatGPTModelCatalog.fetch(auth: auth, cookieHeader: settings.effectiveCookieHeader)
+            settings.registerAvailablePingModels(models)
+            let originalWork = codexSessionPinger.conversationID
+            let originalChat = settings.pingConversationID
+            guard !originalWork.isEmpty, !originalChat.isEmpty, originalWork != originalChat,
+                  let workModel = ChatGPTModelCatalog.lowestUsageOption(in: models, workMode: true),
+                  let chatModel = ChatGPTModelCatalog.lowestUsageOption(in: models, workMode: false) else {
+                return "Existing separate chats and a live model list are required."
+            }
+            var workPreferences = codexSessionPinger.preferences
+            workPreferences.model = workModel.slug
+            workPreferences.reasoningEffort = ChatGPTModelCatalog.lowestEffort(for: workModel).id
+            let start = Date()
+            let workStatus = await codexSessionPinger.testConnection(preferences: workPreferences)
+            let record = codexSessionPinger.records.last
+            let workPassed = record?.success == true && (record?.date ?? .distantPast) >= start
+                && record?.model == workModel.slug && record?.conversationID == originalWork
+                && codexSessionPinger.confirmedEffort == workPreferences.reasoningEffort
+            let chatEffort = ChatGPTModelCatalog.lowestEffort(for: chatModel).id
+            let chat = await appState.sendChatGPTPing(model: chatModel.slug, effort: chatEffort, message: "Say 1")
+            // Non-reasoning models normally omit effort metadata. Do not invent a
+            // confirmation, or reject a confirmed model that has no effort control.
+            let chatEffortMatches = chat?.confirmedReasoningEffort == chatEffort
+                || (!chatModel.usesReasoning && chatEffort == "none" && chat?.confirmedReasoningEffort == nil)
+            let chatPassed = chat?.confirmedModel == chatModel.slug && chat?.conversationID == originalChat
+                && chatEffortMatches
+            if workPassed { codexSessionPinger.applyPreferences(workPreferences) }
+            if chatPassed { settings.pingModel = chatModel.slug; settings.pingReasoningEffort = chatEffort }
+            let result: [String: Any] = ["workPassed": workPassed, "chatPassed": chatPassed,
+                "workModel": workModel.displayTitle, "workEffort": ChatGPTModelCatalog.lowestEffort(for: workModel).title,
+                "workStatus": workStatus, "chatModel": chatModel.displayTitle,
+                "confirmedWorkEffort": codexSessionPinger.confirmedEffort ?? "unconfirmed",
+                "confirmedChatEffort": chat?.confirmedReasoningEffort ?? "unconfirmed",
+                "chatUsesReasoning": chatModel.usesReasoning,
+                "chatStatus": appState.pingStatus ?? "", "sameWorkChat": codexSessionPinger.conversationID == originalWork,
+                "sameChatGPTChat": settings.pingConversationID == originalChat]
+            return String(decoding: try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]), as: UTF8.self)
+        } catch { return "Verification failed: \(error.localizedDescription)" }
+    }
+
     public func sessionTimingSnapshot(now: Date) -> [String: Any] {
         let pinger = codexSessionPinger
         return ["scheduleEnabled": pinger.enabled,

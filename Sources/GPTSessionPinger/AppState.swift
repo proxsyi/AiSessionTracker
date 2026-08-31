@@ -123,38 +123,38 @@ final class AppState: ObservableObject {
         return "Some usage sources could not be refreshed. " + warnings.joined(separator: " ")
     }
 
-    func pingChatGPT() {
-        guard !isPinging else { return }
+    func pingChatGPT(model: String? = nil, effort: String? = nil, message: String? = nil) {
+        Task { [weak self] in
+            _ = await self?.sendChatGPTPing(model: model, effort: effort, message: message)
+        }
+    }
+
+    func sendChatGPTPing(model: String? = nil, effort: String? = nil, message: String? = nil) async -> ChatGPTPingOutcome? {
+        guard !isPinging else { return nil }
         isPinging = true
         pingStatus = nil
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let auth = try await ChatGPTWebSession.resolve(savedCredential: settings.sessionKey, accountID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader)
-                let outcome = try await ChatGPTClient.sendPing(
-                    auth: auth,
-                    cookieHeader: settings.effectiveCookieHeader,
-                    model: settings.pingModel,
-                    modelTitle: settings.pingModelTitle(for: settings.pingModel),
-                    mode: .chat,
-                    reasoningEffort: settings.pingReasoningEffort,
-                    message: settings.pingMessage,
-                    conversationID: settings.pingConversationID,
-                    parentMessageID: settings.pingParentMessageID
-                )
-                settings.pingConversationID = outcome.conversationID
-                settings.pingParentMessageID = outcome.parentMessageID
-                let confirmation = CodexSessionPinger.modelConfirmationText(
-                    requestedModel: settings.pingModel,
-                    requestedEffort: settings.pingReasoningEffort,
-                    confirmedModel: outcome.confirmedModel,
-                    confirmedEffort: outcome.confirmedReasoningEffort
-                )
-                pingStatus = "Ping sent in the shared ChatGPT chat. \(confirmation)"
-            } catch {
-                pingStatus = (error as? ChatGPTPingError)?.localizedDescription ?? error.localizedDescription
-            }
-            isPinging = false
+        defer { isPinging = false }
+        let requestedModel = model ?? settings.pingModel
+        let requestedEffort = effort ?? settings.pingReasoningEffort
+        do {
+            let auth = try await ChatGPTWebSession.resolve(savedCredential: settings.sessionKey,
+                accountID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader)
+            let outcome = try await ChatGPTClient.sendPing(
+                auth: auth, cookieHeader: settings.effectiveCookieHeader,
+                model: requestedModel, modelTitle: settings.pingModelTitle(for: requestedModel),
+                mode: .chat, reasoningEffort: requestedEffort, message: message ?? settings.pingMessage,
+                conversationID: settings.pingConversationID, parentMessageID: settings.pingParentMessageID
+            )
+            settings.pingConversationID = outcome.conversationID
+            settings.pingParentMessageID = outcome.parentMessageID
+            let confirmation = CodexSessionPinger.modelConfirmationText(requestedModel: requestedModel,
+                requestedEffort: requestedEffort, confirmedModel: outcome.confirmedModel,
+                confirmedEffort: outcome.confirmedReasoningEffort)
+            pingStatus = "Ping sent · \(confirmation)"
+            return outcome
+        } catch {
+            pingStatus = (error as? ChatGPTPingError)?.localizedDescription ?? error.localizedDescription
+            return nil
         }
     }
 

@@ -156,6 +156,7 @@ final class CodexSessionPinger: ObservableObject {
     @Published private(set) var lastSuccess: Date?
     @Published private(set) var records: [PingRecord]
     @Published private(set) var activeModel: String?
+    @Published private(set) var confirmedEffort: String?
     @Published private(set) var wakeHelperInstalled = CodexWakeSupport.isInstalled
     @Published private(set) var isInstallingWakeSupport = false
     @Published private(set) var wakeSupportStatus = CodexWakeSupport.isInstalled
@@ -188,7 +189,7 @@ final class CodexSessionPinger: ObservableObject {
             : storedModel!
         model = selectedModel
         let storedEffort = defaults.string(forKey: Keys.reasoningEffort)
-        reasoningEffort = requiresLowestWorkSelectionMigration || !["min", "standard", "extended"].contains(storedEffort ?? "")
+        reasoningEffort = requiresLowestWorkSelectionMigration || (storedEffort ?? "").isEmpty
             ? "min"
             : storedEffort!
         message = defaults.string(forKey: Keys.message) ?? "Say 1"
@@ -273,20 +274,7 @@ final class CodexSessionPinger: ObservableObject {
     var scheduleValidationMessage: String? { Self.validationMessage(for: slots) }
 
     static func validationMessage(for slots: [ScheduleSlot]) -> String? {
-        let sorted = slots.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
-        guard !sorted.isEmpty else { return "Add at least one scheduled Codex ping." }
-        guard sorted.allSatisfy({ (0...23).contains($0.hour) && (0...59).contains($0.minute) }) else {
-            return "Choose a valid time for every scheduled Codex ping."
-        }
-        guard sorted.count > 1 else { return nil }
-        let minutes = sorted.map { $0.hour * 60 + $0.minute }
-        for index in minutes.indices {
-            let next = index == minutes.count - 1 ? minutes[0] + 24 * 60 : minutes[index + 1]
-            if next - minutes[index] < 5 * 60 {
-                return "Scheduled Codex pings must be at least 5 hours apart, including overnight."
-            }
-        }
-        return nil
+        TrackerScheduleRules.validationMessage(slots.map { .init(hour: $0.hour, minute: $0.minute) })
     }
 
     func pingNow() {
@@ -431,6 +419,7 @@ final class CodexSessionPinger: ObservableObject {
                 parentMessageID = outcome.parentMessageID
                 lastSuccess = Date()
                 activeModel = outcome.confirmedModel
+                confirmedEffort = outcome.confirmedReasoningEffort
                 let confirmation = Self.modelConfirmationText(
                     requestedModel: requested.model,
                     requestedEffort: requested.reasoningEffort,
@@ -665,18 +654,17 @@ final class CodexSessionPinger: ObservableObject {
         confirmedEffort: String?
     ) -> String {
         guard let confirmedModel else {
-            return "Requested \(requestedModel) with \(requestedEffort) effort; ChatGPT did not expose confirmation."
+            return "Requested \(TrackerModelLabels.openAI(requestedModel)) · \(TrackerModelLabels.effort(requestedEffort)); ChatGPT did not expose confirmation."
         }
         if confirmedModel != requestedModel {
-            let effort = confirmedEffort.map { " with \($0) effort" } ?? ""
-            return "Requested \(requestedModel), but ChatGPT confirmed \(confirmedModel)\(effort)."
+            return "Requested \(TrackerModelLabels.openAI(requestedModel)); received \(TrackerModelLabels.openAI(confirmedModel))."
         }
         if requestedEffort != "none", requestedEffort != "default",
            let confirmedEffort, confirmedEffort != requestedEffort {
-            return "ChatGPT confirmed \(confirmedModel), but used \(confirmedEffort) instead of \(requestedEffort) effort."
+            return "\(TrackerModelLabels.openAI(confirmedModel)) · \(TrackerModelLabels.effort(confirmedEffort)) (requested \(TrackerModelLabels.effort(requestedEffort)))."
         }
-        let effort = confirmedEffort.map { " with \($0) effort" } ?? ""
-        return "ChatGPT confirmed \(confirmedModel)\(effort)."
+        let effort = confirmedEffort.map { " · \(TrackerModelLabels.effort($0))" } ?? ""
+        return "\(TrackerModelLabels.openAI(confirmedModel))\(effort)"
     }
 
     private func isRetryable(_ error: Error) -> Bool {

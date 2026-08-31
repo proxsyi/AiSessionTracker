@@ -21,6 +21,8 @@ The mixed app keeps Claude and OpenAI logins, settings, alerts, and updater iden
 - ChatGPT tracks message, model, and feature allowances only when reported.
 - Every visible counter and alert can be enabled independently.
 - Claude and Codex share scheduling controls, countdowns, activity, wake support, notification controls, and optional weekly trends.
+- Both use the same minute-precision schedule editor and countdown settings. See [feature parity](docs/FEATURE_PARITY.md).
+- Model pickers use short provider names. **Use lowest usage** selects a small model from the live account catalog and its lowest available effort; actual usage varies by task.
 - Their weekly charts share one implementation but keep separate histories; only real server-reported weekly percentages are recorded.
 - Ping settings are saved with **Save**. **Cancel** discards the current page's unsaved changes; switching providers saves that provider's edits.
 - The menu-bar star and ring can use separate Claude and GPT percentage sources.

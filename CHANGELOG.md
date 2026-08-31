@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Use one schedule editor and session-display control set for Claude and Codex, including minute precision. Remove Codex's empty Activity card, match usage rows, and add live low-usage selection and model refresh controls.
+- Show concise provider-facing model and effort names without raw identifiers. Preserve saved effort choices, distinguish same-named chat variants, and send ChatGPT test pings with the settings currently selected.
+
 - Share the daily timer engine while keeping Claude and Codex schedules independent. Advance scheduled countdowns before ping work, ignore cancelled callbacks, honor expired server resets, and keep Codex timing independent of visible usage bars.
 
 - Share Claude/Codex notification delivery, foreground presentation, threshold/reset policy, and ping-alert controls. Isolate provider notification IDs, request sound consistently, avoid duplicate success alerts, and describe successful pings without claiming a new usage window.

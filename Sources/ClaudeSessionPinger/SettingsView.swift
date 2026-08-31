@@ -308,6 +308,12 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .tint(ClaudeTheme.accent)
                 .help("Tries your selected model first, then falls back if Claude rejects it.")
+                HStack {
+                    Button("Use lowest usage") { model = modelOptions.first(where: { $0.contains("haiku") }) ?? model }
+                        .claudeGhostButton()
+                    Button("Refresh models") { Task { await appState.refreshUsage() } }
+                        .claudeGhostButton().disabled(appState.isRefreshingUsage)
+                }
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -317,53 +323,10 @@ struct SettingsView: View {
                     .claudeGlassField()
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                fieldLabel("Schedule")
-                ForEach(slots.indices, id: \.self) { index in
-                    HStack {
-                        Stepper(value: Binding(
-                            get: { slots[index].hour },
-                            set: { slots[index].hour = $0 }
-                        ), in: 0...23) {
-                            HStack(spacing: 6) {
-                                Text(formattedTimeNumbers(hour: slots[index].hour, minute: slots[index].minute))
-                                    .frame(width: 40, alignment: .trailing)
-                                Text(timePeriod(hour: slots[index].hour))
-                                    .frame(width: 22, alignment: .leading)
-                            }
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(ClaudeTheme.textPrimary)
-                        }
-                        .controlSize(.small)
-                        Spacer()
-                        Button(action: { slots.remove(at: index) }) {
-                            Image(systemName: "minus.circle")
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(ClaudeTheme.textSecondary)
-                        .help("Remove time")
-                    }
-                }
-                Button("Add time") {
-                    if let hour = ScheduleRules.firstAvailableHour(addingTo: slots) {
-                        slots.append(ScheduleSlot(hour: hour, minute: 0))
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(ClaudeTheme.accent)
-                .disabled(ScheduleRules.firstAvailableHour(addingTo: slots) == nil)
-
-                if let scheduleValidationMessage {
-                    Text(scheduleValidationMessage)
-                        .font(.system(size: 11))
-                        .foregroundColor(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    EmptyView()
-                }
-            }
-            .help("Scheduled pings must be at least five hours apart, including overnight.")
+            TrackerScheduleEditor(slots: Binding(
+                get: { slots.map { .init(hour: $0.hour, minute: $0.minute) } },
+                set: { slots = $0.map { .init(hour: $0.hour, minute: $0.minute) } }
+            ), accent: ClaudeTheme.accent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -386,10 +349,7 @@ struct SettingsView: View {
     }
 
     private func modelLabel(_ slug: String) -> String {
-        if slug.contains("haiku") { return "Haiku (suggested) — \(slug)" }
-        if slug.contains("sonnet") { return "Sonnet — \(slug)" }
-        if slug.contains("opus") { return "Opus — \(slug)" }
-        return slug
+        TrackerModelLabels.claude(slug)
     }
 
     private var activitySection: some View {
@@ -422,7 +382,7 @@ struct SettingsView: View {
             }
 
             if let activeModel = appState.activeModel {
-                caption("Last successful model: \(activeModel)")
+                caption("Last successful model: \(TrackerModelLabels.claude(activeModel))")
             }
 
             caption(settings.conversationID.isEmpty
@@ -442,6 +402,7 @@ struct SettingsView: View {
                         settings.conversationID = ""
                     }
                     .claudeGhostButton()
+                    .disabled(appState.status == .sending)
                 }
             }
         }
@@ -465,30 +426,10 @@ struct SettingsView: View {
     private var sessionDisplaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Session display")
-            toggleRow("Next possible session", isOn: $showNextPossibleCountdown, help: "Show when Claude's active five-hour window resets.")
-            toggleRow("Scheduled session", isOn: $showScheduledCountdown, help: "Show the next saved ping time.")
-            if showNextPossibleCountdown && showScheduledCountdown {
-                VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Main focus")
-                    Picker("Main focus", selection: $countdownFocus) {
-                        ForEach(CountdownFocus.allCases) { focus in
-                            Text(focus.label).tag(focus)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .tint(ClaudeTheme.accent)
-                    .help("The other enabled countdown appears underneath in gray.")
-                }
-            }
-            toggleRow(
-                "Start sessions when available",
-                isOn: $autoStartAvailableSessions,
-                help: "Starts an available session unless a scheduled ping is due within five hours."
-            )
+            TrackerSessionDisplaySettings(nextPossible: $showNextPossibleCountdown, scheduled: $showScheduledCountdown,
+                focusScheduled: Binding(get: { countdownFocus == .scheduled }, set: { countdownFocus = $0 ? .scheduled : .nextPossible }),
+                autoStart: $autoStartAvailableSessions, accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var usageAlertsSection: some View {

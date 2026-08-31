@@ -128,7 +128,7 @@ struct SettingsView: View {
                 } else if settingsScope != .codex {
                     settingsCard { pingSection }
                 }
-                settingsCard { activitySection }
+                if !(combinedMode && settingsScope == .codex) { settingsCard { activitySection } }
             case .usage:
                 settingsCard { trackedUsageSection }
                 if combinedMode && settingsScope == .codex {
@@ -222,12 +222,13 @@ struct SettingsView: View {
                 .onChange(of: pingModel) { selected in
                     pingReasoningEffort = normalizedEffort(pingReasoningEffort, for: selected, workMode: false)
                 }
+                modelActions(workMode: false)
             }
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Reasoning effort")
                 Picker("Reasoning effort", selection: $pingReasoningEffort) {
                     ForEach(effortOptions(for: pingModel, workMode: false)) { effort in
-                        Text(effort.title).tag(effort.id)
+                        Text(TrackerModelLabels.effort(effort.id, title: effort.title)).tag(effort.id)
                     }
                 }
                 .labelsHidden()
@@ -242,7 +243,9 @@ struct SettingsView: View {
                     .gptGlassField()
             }
             HStack {
-                Button(appState.isPinging ? "Pinging…" : "Ping now") { appState.pingChatGPT() }
+                Button(appState.isPinging ? "Pinging…" : "Ping now") {
+                    appState.pingChatGPT(model: pingModel, effort: pingReasoningEffort, message: pingMessage)
+                }
                     .gptPrimaryButton().disabled(appState.isPinging || !settings.isConfigured)
                 if let pingStatus = appState.pingStatus {
                     Text(pingStatus).font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
@@ -267,12 +270,13 @@ struct SettingsView: View {
                 .onChange(of: codexDraft.model) { selected in
                     codexDraft.reasoningEffort = normalizedEffort(codexDraft.reasoningEffort, for: selected, workMode: true)
                 }
+                modelActions(workMode: true)
             }
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Reasoning effort")
                 Picker("Reasoning effort", selection: $codexDraft.reasoningEffort) {
                     ForEach(effortOptions(for: codexDraft.model, workMode: true)) { effort in
-                        Text(effort.title).tag(effort.id)
+                        Text(TrackerModelLabels.effort(effort.id, title: effort.title)).tag(effort.id)
                     }
                 }
                 .labelsHidden().pickerStyle(.menu).tint(GPTTheme.accent)
@@ -282,32 +286,10 @@ struct SettingsView: View {
                 TextField("Say 1", text: $codexDraft.message)
                     .textFieldStyle(.plain).gptGlassField()
             }
-            fieldLabel("Schedule")
-            ForEach(codexDraft.slots.indices, id: \.self) { index in
-                HStack {
-                    Stepper(value: Binding(
-                        get: { codexDraft.slots[index].hour },
-                        set: { codexDraft.slots[index].hour = $0 }
-                    ), in: 0...23) {
-                        HStack(spacing: 6) {
-                            Text(codexTimeNumbers(for: codexDraft.slots[index].hour))
-                                .frame(width: 40, alignment: .trailing)
-                            Text(codexTimePeriod(for: codexDraft.slots[index].hour))
-                                .frame(width: 22, alignment: .leading)
-                        }
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(GPTTheme.textPrimary)
-                    }
-                    .controlSize(.small)
-                    Spacer()
-                    Button { removeCodexSlot(at: index) } label: { Image(systemName: "minus.circle") }
-                        .buttonStyle(.plain).foregroundColor(GPTTheme.textSecondary)
-                }
-            }
-            Button("Add time") { addCodexSlot() }.gptGhostButton()
-            if let message = CodexSessionPinger.validationMessage(for: codexDraft.slots) {
-                Text(message).font(.system(size: 10)).foregroundColor(.red)
-            }
+            TrackerScheduleEditor(slots: Binding(
+                get: { codexDraft.slots.map { .init(hour: $0.hour, minute: $0.minute) } },
+                set: { codexDraft.slots = $0.map { .init(hour: $0.hour, minute: $0.minute) } }
+            ), accent: GPTTheme.accent)
         }
         .help("Scheduled pings must be at least five hours apart, including overnight.")
     }
@@ -332,7 +314,7 @@ struct SettingsView: View {
                     .multilineTextAlignment(.trailing)
             }
             if let activeModel = codexSessionPinger.activeModel {
-                Text("Last successful model: \(activeModel)")
+                Text("Last successful model: \(settings.pingModelOption(for: activeModel)?.displayTitle ?? TrackerModelLabels.openAI(activeModel))")
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
             detailRow("Chat", codexSessionPinger.conversationID.isEmpty ? "Created by first ping" : "Dedicated chat")
@@ -356,55 +338,10 @@ struct SettingsView: View {
     private var codexSessionDisplaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Session display")
-            toggleRow("Next possible session", isOn: $codexDraft.showNextPossibleCountdown, help: "Show the active Codex rolling-window reset.")
-            toggleRow("Scheduled session", isOn: $codexDraft.showScheduledCountdown, help: "Show the next saved Codex ping time.")
-            if codexDraft.showNextPossibleCountdown && codexDraft.showScheduledCountdown {
-                VStack(alignment: .leading, spacing: 6) {
-                    fieldLabel("Main focus")
-                    Picker("Main focus", selection: $codexDraft.countdownFocus) {
-                        ForEach(CodexSessionPinger.CountdownFocus.allCases) { focus in
-                            Text(focus.label).tag(focus)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .tint(GPTTheme.accent)
-                    .help("The other enabled countdown appears underneath in gray.")
-                }
-            }
-            toggleRow("Start sessions when available", isOn: $codexDraft.autoStartAvailableSessions, help: "Starts an available session unless a scheduled ping is due within five hours.")
+            TrackerSessionDisplaySettings(nextPossible: $codexDraft.showNextPossibleCountdown, scheduled: $codexDraft.showScheduledCountdown,
+                focusScheduled: Binding(get: { codexDraft.countdownFocus == .scheduled }, set: { codexDraft.countdownFocus = $0 ? .scheduled : .nextPossible }),
+                autoStart: $codexDraft.autoStartAvailableSessions, accent: GPTTheme.accent, clearGlass: preferClearGlass)
         }
-    }
-
-    private func addCodexSlot() {
-        let current = codexDraft.slots
-        for hour in 0...23 {
-            let candidate = current + [CodexSessionPinger.ScheduleSlot(hour: hour, minute: 0)]
-            let minutes = candidate.map { $0.hour * 60 + $0.minute }.sorted()
-            let valid = minutes.enumerated().allSatisfy { index, minute in
-                let next = index == minutes.count - 1 ? minutes[0] + 24 * 60 : minutes[index + 1]
-                return next - minute >= 5 * 60
-            }
-            if valid {
-                codexDraft.slots.append(CodexSessionPinger.ScheduleSlot(hour: hour, minute: 0))
-                return
-            }
-        }
-    }
-
-    private func removeCodexSlot(at index: Int) {
-        guard codexDraft.slots.count > 1 else { return }
-        codexDraft.slots.remove(at: index)
-    }
-
-    private func codexTimeNumbers(for hour: Int) -> String {
-        let normalized = hour % 12 == 0 ? 12 : hour % 12
-        return String(format: "%2d:00", normalized)
-    }
-
-    private func codexTimePeriod(for hour: Int) -> String {
-        hour < 12 ? "AM" : "PM"
     }
 
     @ViewBuilder
@@ -462,7 +399,6 @@ struct SettingsView: View {
     private var trackedUsageSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(text: "Tracked usage")
-            groupTitle(settingsScope?.rawValue ?? "Codex and ChatGPT")
             if scopedUsageRows.isEmpty {
                 Text("No usage counters are currently reported for this section. Refresh usage after signing in to check again.")
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
@@ -476,7 +412,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Usage display")
             if settingsScope != .chatGPT {
-                toggleRow("Show Codex weekly trend", isOn: $showHistoryChart)
+                toggleRow("Show weekly trend", isOn: $showHistoryChart)
             }
             toggleRow("Automatically show newly discovered limits", isOn: $automaticallyShowNewUsageTracks, help: "Shows new account-reported counters when ChatGPT begins returning them.")
         }
@@ -529,7 +465,7 @@ struct SettingsView: View {
             if !combinedMode {
                 toggleRow("Launch at login", isOn: $launchAtLogin)
             }
-            toggleRow("Command-I opens the tracker", isOn: $enableCommandIShortcut)
+            toggleRow("Command-I opens menu", isOn: $enableCommandIShortcut)
             if combinedMode && settingsScope == .codex {
                 toggleRow(
                     "Wake Mac for scheduled pings",
@@ -568,11 +504,7 @@ struct SettingsView: View {
             }
             toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass, help: "Changes Settings glass transparency immediately.")
             if settingsScope != .chatGPT {
-                HStack {
-                    Button("Clear Codex trend history") { history.clear() }.gptGhostButton()
-                    Spacer()
-                    Text("Local samples only").font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
-                }
+                Button("Clear weekly trend history") { history.clear() }.gptGhostButton().help("Clears local samples only.")
             }
         }
     }
@@ -684,16 +616,8 @@ struct SettingsView: View {
     }
 
     private func usageToggle(_ row: UsageSettingRow) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(row.title).font(.system(size: 11, weight: .medium)).foregroundColor(GPTTheme.textPrimary)
-                Text(row.detail + " · Live")
-                    .font(.system(size: 9)).foregroundColor(GPTTheme.textSecondary)
-            }
-            Spacer()
-            Toggle("", isOn: visibilityBinding(for: row.id)).labelsHidden().toggleStyle(GPTGlassToggleStyle())
-                .accessibilityLabel(Text("Show \(row.title)"))
-        }
+        TrackerSettingsToggleRow(row.title, isOn: visibilityBinding(for: row.id),
+            accent: GPTTheme.accent, clearGlass: preferClearGlass, helpText: row.detail)
     }
 
     private func toggleRow(_ title: String, isOn: Binding<Bool>, help: String? = nil) -> some View {
@@ -787,7 +711,7 @@ struct SettingsView: View {
             models.append(ChatGPTModelOption(
                 slug: selectedSlug,
                 title: ChatGPTModelCatalog.fallbackTitle(for: selectedSlug),
-                reasoningType: selectedSlug.contains("thinking") || selectedSlug.contains("t-mini") ? "reasoning" : "none",
+                reasoningType: workMode || selectedSlug.contains("thinking") || selectedSlug.contains("t-mini") ? "reasoning" : "none",
                 thinkingEfforts: [],
                 isWorkMode: selectedSlug.hasSuffix("-wm")
             ))
@@ -796,10 +720,23 @@ struct SettingsView: View {
     }
 
     private func modelPickerTitle(_ option: ChatGPTModelOption) -> String {
-        let recommended = [ChatGPTModelCatalog.lowestUsageModelSlug, ChatGPTModelCatalog.lowestUsageWorkModelSlug].contains(option.slug)
-            ? " (lowest usage)"
-            : ""
-        return "\(option.title)\(recommended) — \(option.slug)"
+        option.displayTitle
+    }
+
+    private func modelActions(workMode: Bool) -> some View {
+        HStack {
+            Button("Use lowest usage") {
+                guard let model = ChatGPTModelCatalog.lowestUsageOption(in: settings.availablePingModels, workMode: workMode) else { return }
+                let effort = ChatGPTModelCatalog.lowestEffort(for: model).id
+                if workMode { codexDraft.model = model.slug; codexDraft.reasoningEffort = effort }
+                else { pingModel = model.slug; pingReasoningEffort = effort }
+            }
+            .gptGhostButton()
+            .disabled(ChatGPTModelCatalog.lowestUsageOption(in: settings.availablePingModels, workMode: workMode) == nil)
+            .help("Prefers the smallest available model family and lowest effort. Actual usage varies.")
+            Button("Refresh models") { Task { await appState.refreshUsage() } }
+                .gptGhostButton().disabled(appState.isRefreshingUsage)
+        }
     }
 
     private func effortOptions(for slug: String, workMode: Bool) -> [ChatGPTThinkingEffort] {

@@ -35,6 +35,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         TrackerNotifications.shared.configure()
+        if ProcessInfo.processInfo.arguments.contains("--verify-lowest-model-pings") {
+            Task {
+                print(await gptFeature.verifyLowestModelPings())
+                NSApp.terminate(nil)
+            }
+            return
+        }
+        if ProcessInfo.processInfo.arguments.contains("--verify-model-catalog") {
+            Task {
+                print(await gptFeature.modelCatalogReport())
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--verify-session-timing") {
             Task {
                 await appState.refreshUsage()
