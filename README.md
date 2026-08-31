@@ -16,10 +16,13 @@ The mixed app keeps Claude and OpenAI logins, settings, alerts, and updater iden
 - Usage counters appear only when the signed-in service reports them.
 - Claude reuses one dedicated Claude chat for scheduled pings.
 - Codex reuses one dedicated ChatGPT Work task for scheduled pings.
-- ChatGPT reuses a separate dedicated cloud chat for scheduled pings.
+- ChatGPT reuses a separate dedicated cloud chat for manual pings.
 - Codex tracks rolling windows, weekly usage, code review, workspace state, and credits when reported.
 - ChatGPT tracks message, model, and feature allowances only when reported.
 - Every visible counter and alert can be enabled independently.
+- Claude and Codex share scheduling controls, countdowns, activity, wake support, notification controls, and optional weekly trends.
+- Their weekly charts share one implementation but keep separate histories; only real server-reported weekly percentages are recorded.
+- Ping settings are saved with **Save**. **Cancel** discards the current page's unsaved changes; switching providers saves that provider's edits.
 - The menu-bar star and ring can use separate Claude and GPT percentage sources.
 - Command-U opens Claude; Command-I opens the last selected Codex or ChatGPT tab.
 - Clicking elsewhere closes the menu popover without hiding an open Settings window.
@@ -46,6 +49,8 @@ The app does not read Safari or Chrome cookies.
 - Keychain service `com.proxsyi.gptsessionpinger`: one ChatGPT `webSession` record shared by the Codex and ChatGPT tabs.
 - Settings stay in the provider-specific `UserDefaults` domains so standalone and mixed apps remain compatible.
 - Notifications are optional and controlled per usage counter and service state.
+- Both pingers offer failure, available-session, ping-sent, and scheduled-ping alerts. A successful ping does not claim that a new usage window started.
+- Alerts request banners and sound even while Settings is open; macOS notification preferences and Focus still apply. **Send test notification** checks delivery permissions.
 - Launch at Login is optional.
 - The mixed app has one shared wake helper. Claude and Codex can opt into wake scheduling independently without duplicating or replacing each other's events.
 - The standalone Claude app uses its own isolated wake helper.

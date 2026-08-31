@@ -23,12 +23,15 @@ struct SettingsView: View {
     @State private var slots: [ScheduleSlot] = []
     @State private var launchAtLogin = false
     @State private var notifyOnFailure = true
+    @State private var notifyOnSuccess = false
+    @State private var scheduledPingsEnabled = true
     @State private var notifyOnServiceOutage = true
     @State private var notifyOnServiceDegraded = true
     @State private var sessionThresholds: Set<Int> = []
     @State private var weeklyThresholds: Set<Int> = []
     @State private var showSessionBar = true
     @State private var showWeeklyBar = true
+    @State private var showHistoryChart = false
     @State private var showNextPossibleCountdown = true
     @State private var showScheduledCountdown = true
     @State private var countdownFocus: CountdownFocus = .nextPossible
@@ -43,6 +46,8 @@ struct SettingsView: View {
     @State private var testResult: String?
     @State private var isTesting = false
     @State private var showingLogin = false
+    @State private var isClearingLogin = false
+    @State private var discardChanges = false
     @State private var loginCaptured = false
     @State private var isFetchingOrganization = false
     @State private var showManualKeys = false
@@ -83,20 +88,22 @@ struct SettingsView: View {
         )
         .environment(\.claudeClearGlass, preferClearGlass)
         .onAppear {
+            discardChanges = false
             loadCurrentValues()
             appState.refreshWakeTestResult()
             installSaveActionIfActive()
         }
         .onChange(of: isActive) { active in
             if active {
+                discardChanges = false
                 loadCurrentValues()
                 installSaveActionIfActive()
-            } else if saveOnDisappear {
+            } else if saveOnDisappear && !discardChanges {
                 save(closeWindow: false)
             }
         }
         .onDisappear {
-            if saveOnDisappear && isActive { save(closeWindow: false) }
+            if saveOnDisappear && isActive && !discardChanges { save(closeWindow: false) }
             if isActive { appState.requestSaveAndCloseSettings = nil }
         }
         .sheet(isPresented: $showingLogin) {
@@ -129,6 +136,10 @@ struct SettingsView: View {
             case .usage:
                 settingsCard { trackedUsageSection }
                 settingsCard { sessionDisplaySection }
+                settingsCard {
+                    SectionHeader(text: "Usage display")
+                    toggleRow("Show weekly trend", isOn: $showHistoryChart)
+                }
             case .alerts:
                 settingsCard { usageAlertsSection }
                 settingsCard { pingAlertsSection }
@@ -191,6 +202,14 @@ struct SettingsView: View {
                 showingLogin = true
             }
             .claudePrimaryButton()
+            .disabled(isClearingLogin)
+
+            if !settings.sessionKey.isEmpty {
+                Button(isClearingLogin ? "Signing out…" : "Log out") { clearLogin() }
+                    .claudeGhostButton()
+                    .disabled(isClearingLogin || appState.status == .sending || isTesting)
+                    .help("Clears only Claude credentials and embedded-browser data. Codex and ChatGPT are unaffected.")
+            }
 
             if loginCaptured {
                 Text("Signed in -- session and cookies captured automatically.")
@@ -275,6 +294,7 @@ struct SettingsView: View {
     private var pingSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Ping")
+            toggleRow("Schedule pings", isOn: $scheduledPingsEnabled)
 
             VStack(alignment: .leading, spacing: 6) {
                 fieldLabel("Model")
@@ -487,9 +507,9 @@ struct SettingsView: View {
     private var pingAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Ping alerts")
-            toggleRow("Ping failures", isOn: $notifyOnFailure)
-            toggleRow("New session available", isOn: $notifySessionAvailable)
-            toggleRow("Session started by app", isOn: $notifySessionStarted)
+            TrackerPingAlertSettings(failures: $notifyOnFailure, available: $notifySessionAvailable,
+                sent: $notifySessionStarted, scheduled: $notifyOnSuccess,
+                accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -587,6 +607,8 @@ struct SettingsView: View {
                 }
             }
             toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass, help: "Changes Settings glass transparency immediately.")
+            Button("Clear weekly trend history") { appState.clearWeeklyHistory() }
+                .claudeGhostButton().help("Clears local samples only.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -632,7 +654,7 @@ struct SettingsView: View {
             testDisabled: isTesting,
             saveDisabled: scheduleValidationMessage != nil,
             onTest: runTest,
-            onCancel: { appState.closeSettingsWindow?() },
+            onCancel: { discardChanges = true; appState.closeSettingsWindow?() },
             onSave: { save() }
         ) {
             if let testResult {
@@ -701,12 +723,15 @@ struct SettingsView: View {
         slots = settings.scheduleSlots
         launchAtLogin = settings.launchAtLogin
         notifyOnFailure = settings.notifyOnFailure
+        notifyOnSuccess = settings.notifyOnSuccess
+        scheduledPingsEnabled = settings.scheduledPingsEnabled
         notifyOnServiceOutage = settings.notifyOnServiceOutage
         notifyOnServiceDegraded = settings.notifyOnServiceDegraded
         sessionThresholds = Set(settings.sessionUsageThresholds)
         weeklyThresholds = Set(settings.weeklyUsageThresholds)
         showSessionBar = settings.showSessionBar
         showWeeklyBar = settings.showWeeklyBar
+        showHistoryChart = settings.showHistoryChart
         showNextPossibleCountdown = settings.showNextPossibleCountdown
         showScheduledCountdown = settings.showScheduledCountdown
         countdownFocus = settings.countdownFocus
@@ -719,6 +744,22 @@ struct SettingsView: View {
         autoUpdate = settings.autoUpdateEnabled
         sessionKeyInput = ""
         testResult = nil
+    }
+
+    private func clearLogin() {
+        guard !isClearingLogin else { return }
+        isClearingLogin = true
+        Task {
+            settings.sessionKey = ""
+            settings.cookieHeader = ""
+            settings.organizationID = ""
+            organizationID = ""
+            sessionKeyInput = ""
+            loginCaptured = false
+            await TrackerWebsiteData.clear(domains: TrackerWebsiteData.claudeDomains)
+            appState.clearAccountData()
+            isClearingLogin = false
+        }
     }
 
     private func save(showPopoverAfterClose: Bool = false, closeWindow: Bool = true) {
@@ -742,12 +783,15 @@ struct SettingsView: View {
             settings.launchAtLogin = launchAtLogin
         }
         settings.notifyOnFailure = notifyOnFailure
+        settings.notifyOnSuccess = notifyOnSuccess
+        settings.scheduledPingsEnabled = scheduledPingsEnabled
         settings.notifyOnServiceOutage = notifyOnServiceOutage
         settings.notifyOnServiceDegraded = notifyOnServiceDegraded
         settings.sessionUsageThresholds = sessionThresholds.sorted()
         settings.weeklyUsageThresholds = weeklyThresholds.sorted()
         settings.showSessionBar = showSessionBar
         settings.showWeeklyBar = showWeeklyBar
+        settings.showHistoryChart = showHistoryChart
         settings.showNextPossibleCountdown = showNextPossibleCountdown
         settings.showScheduledCountdown = showScheduledCountdown
         settings.countdownFocus = countdownFocus
@@ -785,27 +829,11 @@ struct SettingsView: View {
         // belong to the previous session), so fall back to just that key.
         let cookieHeaderToTest = trimmedInput.isEmpty ? settings.effectiveCookieHeader : "sessionKey=\(keyToTest)"
         Task {
-            do {
-                let outcome = try await ClaudeClient.sendPing(
-                    sessionKey: keyToTest,
-                    organizationID: orgToTest,
-                    model: modelToTest,
-                    message: messageToTest,
-                    conversationID: settings.conversationID,
-                    cookieHeader: cookieHeaderToTest
-                )
-                await MainActor.run {
-                    settings.conversationID = outcome.conversationID
-                    testResult = outcome.matchedExpected ? "Success: got reply" : "Connected, but Claude returned an empty reply"
-                    isTesting = false
-                }
-            } catch {
-                let description = (error as? PingError)?.localizedDescription ?? error.localizedDescription
-                await MainActor.run {
-                    testResult = description
-                    isTesting = false
-                }
-            }
+            testResult = await appState.testConnection(configuration: .init(
+                sessionKey: keyToTest, organizationID: orgToTest, cookieHeader: cookieHeaderToTest,
+                model: modelToTest, message: messageToTest
+            ))
+            isTesting = false
         }
     }
 }

@@ -255,37 +255,9 @@ struct MenuBarContentView: View {
     }
 
     private func historyChart(for track: GPTUsageTrack) -> some View {
-        let points = history.points(for: track.preferenceID, since: now.addingTimeInterval(-7 * 86_400))
-        return VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(text: "Codex weekly trend")
-            if points.count < 2 {
-                Text("The chart will appear after another refresh.")
-                    .font(.system(size: 10))
-                    .foregroundColor(GPTTheme.textSecondary)
-            } else {
-                Chart(points) { point in
-                    AreaMark(
-                        x: .value("Time", point.date),
-                        y: .value("Usage", point.percent),
-                        series: .value("Weekly window", point.series)
-                    )
-                        .foregroundStyle(usageColor(track.usedPercent).opacity(0.18))
-                    LineMark(
-                        x: .value("Time", point.date),
-                        y: .value("Usage", point.percent),
-                        series: .value("Weekly window", point.series)
-                    )
-                        .foregroundStyle(usageColor(track.usedPercent))
-                }
-                .chartYScale(domain: 0...100)
-                .chartXAxis(.hidden)
-                .chartYAxis(.hidden)
-                .frame(height: 54)
-            }
-            Text("Server-reported weekly percentage · sampled locally while running")
-                .font(.system(size: 9))
-                .foregroundColor(GPTTheme.textSecondary)
-        }
+        TrackerWeeklyTrend(title: "Codex weekly trend",
+            points: history.points(for: track.preferenceID, since: now.addingTimeInterval(-7 * 86_400)),
+            color: usageColor(track.usedPercent))
     }
 
     private func serviceStatus(for tab: UsageDisplayTab) -> some View {
@@ -316,7 +288,7 @@ struct MenuBarContentView: View {
         let date = codexEffectiveCountdownFocus == .nextPossible
             ? nextPossible
             : codexSessionPinger.nextFireDate
-        guard let date else { return "Now" }
+        guard let date else { return codexEffectiveCountdownFocus == .scheduled ? "Off" : "Now" }
         return date.timeIntervalSince(now) <= 1 ? "Now" : sessionDurationText(until: date)
     }
 

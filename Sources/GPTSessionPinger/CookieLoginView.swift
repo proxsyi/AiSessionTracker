@@ -17,26 +17,10 @@ struct ChatGPTLoginCapture: Equatable {
 
 @MainActor
 enum ChatGPTWebsiteData {
-    /// WKWebsiteDataStore.default() is scoped to this app's WebKit container.
-    /// Clearing it signs the embedded ChatGPT browser out without touching
-    /// Safari, the Claude app, or the Claude Session Pinger's container.
+    /// Sign out only OpenAI domains, including when Claude shares this app's
+    /// embedded-browser container.
     static func clear() async {
-        let store = WKWebsiteDataStore.default()
-        let cookies = await withCheckedContinuation { continuation in
-            store.httpCookieStore.getAllCookies { continuation.resume(returning: $0) }
-        }
-        for cookie in cookies {
-            await withCheckedContinuation { continuation in
-                store.httpCookieStore.delete(cookie) { continuation.resume() }
-            }
-        }
-        let types = WKWebsiteDataStore.allWebsiteDataTypes()
-        let records = await withCheckedContinuation { continuation in
-            store.fetchDataRecords(ofTypes: types) { continuation.resume(returning: $0) }
-        }
-        await withCheckedContinuation { continuation in
-            store.removeData(ofTypes: types, for: records) { continuation.resume() }
-        }
+        await TrackerWebsiteData.clear(domains: TrackerWebsiteData.openAIDomains)
     }
 }
 

@@ -26,6 +26,8 @@ struct SettingsView: View {
     let isActive: Bool
     let onOpenSystemSettings: (() -> Void)?
 
+    @State private var codexDraft = CodexSessionPinger.Preferences()
+    @State private var discardChanges = false
     @State private var selectedTab: TrackerSettingsTab = .general
     @State private var showCategoryTabs = true
     @State private var showHistoryChart = true
@@ -86,19 +88,21 @@ struct SettingsView: View {
         )
         .environment(\.gptClearGlass, preferClearGlass)
         .onAppear {
+            discardChanges = false
             loadCurrentValues()
             installSaveActionIfActive()
         }
         .onChange(of: isActive) { active in
             if active {
+                discardChanges = false
                 loadCurrentValues()
                 installSaveActionIfActive()
-            } else if saveOnDisappear {
+            } else if saveOnDisappear && !discardChanges {
                 save(closeWindow: false)
             }
         }
         .onDisappear {
-            if saveOnDisappear && isActive { save(closeWindow: false) }
+            if saveOnDisappear && isActive && !discardChanges { save(closeWindow: false) }
             if isActive { appState.requestSaveAndCloseSettings = nil }
         }
         .sheet(isPresented: $showingLogin) {
@@ -180,7 +184,7 @@ struct SettingsView: View {
                     if settings.isConfigured {
                         Button(isClearingLogin ? "Clearing…" : "Log out") { clearLogin() }
                             .gptGhostButton()
-                            .disabled(isClearingLogin)
+                            .disabled(isClearingLogin || appState.isPinging || codexSessionPinger.isPinging)
                             .help("Clears this app's Keychain login and embedded-browser data only.")
                     }
                 }
@@ -249,25 +253,25 @@ struct SettingsView: View {
 
     private var codexSessionPingerSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Codex session pinger")
-            toggleRow("Schedule Codex pings", isOn: $codexSessionPinger.enabled, help: "Uses one dedicated Codex chat and reuses it for every scheduled ping.")
+            SectionHeader(text: "Ping")
+            toggleRow("Schedule pings", isOn: $codexDraft.enabled, help: "Uses one dedicated Codex chat and reuses it for every scheduled ping.")
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Model")
-                Picker("Model", selection: $codexSessionPinger.model) {
-                    ForEach(pingModelOptions(for: codexSessionPinger.model, workMode: true)) { option in
+                Picker("Model", selection: $codexDraft.model) {
+                    ForEach(pingModelOptions(for: codexDraft.model, workMode: true)) { option in
                         Text(modelPickerTitle(option)).tag(option.slug)
                     }
                 }
                 .labelsHidden().pickerStyle(.menu).tint(GPTTheme.accent)
                 .help("Uses the lowest-cost configured model with the selected reasoning effort.")
-                .onChange(of: codexSessionPinger.model) { selected in
-                    codexSessionPinger.reasoningEffort = normalizedEffort(codexSessionPinger.reasoningEffort, for: selected, workMode: true)
+                .onChange(of: codexDraft.model) { selected in
+                    codexDraft.reasoningEffort = normalizedEffort(codexDraft.reasoningEffort, for: selected, workMode: true)
                 }
             }
             VStack(alignment: .leading, spacing: 5) {
                 fieldLabel("Reasoning effort")
-                Picker("Reasoning effort", selection: $codexSessionPinger.reasoningEffort) {
-                    ForEach(effortOptions(for: codexSessionPinger.model, workMode: true)) { effort in
+                Picker("Reasoning effort", selection: $codexDraft.reasoningEffort) {
+                    ForEach(effortOptions(for: codexDraft.model, workMode: true)) { effort in
                         Text(effort.title).tag(effort.id)
                     }
                 }
@@ -275,20 +279,20 @@ struct SettingsView: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 fieldLabel("Message")
-                TextField("Say 1", text: $codexSessionPinger.message)
+                TextField("Say 1", text: $codexDraft.message)
                     .textFieldStyle(.plain).gptGlassField()
             }
             fieldLabel("Schedule")
-            ForEach(codexSessionPinger.slots.indices, id: \.self) { index in
+            ForEach(codexDraft.slots.indices, id: \.self) { index in
                 HStack {
                     Stepper(value: Binding(
-                        get: { codexSessionPinger.slots[index].hour },
-                        set: { codexSessionPinger.slots[index].hour = $0 }
+                        get: { codexDraft.slots[index].hour },
+                        set: { codexDraft.slots[index].hour = $0 }
                     ), in: 0...23) {
                         HStack(spacing: 6) {
-                            Text(codexTimeNumbers(for: codexSessionPinger.slots[index].hour))
+                            Text(codexTimeNumbers(for: codexDraft.slots[index].hour))
                                 .frame(width: 40, alignment: .trailing)
-                            Text(codexTimePeriod(for: codexSessionPinger.slots[index].hour))
+                            Text(codexTimePeriod(for: codexDraft.slots[index].hour))
                                 .frame(width: 22, alignment: .leading)
                         }
                         .font(.system(size: 12, design: .monospaced))
@@ -301,7 +305,7 @@ struct SettingsView: View {
                 }
             }
             Button("Add time") { addCodexSlot() }.gptGhostButton()
-            if let message = codexSessionPinger.scheduleValidationMessage {
+            if let message = CodexSessionPinger.validationMessage(for: codexDraft.slots) {
                 Text(message).font(.system(size: 10)).foregroundColor(.red)
             }
         }
@@ -352,12 +356,12 @@ struct SettingsView: View {
     private var codexSessionDisplaySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Session display")
-            toggleRow("Next possible session", isOn: $codexSessionPinger.showNextPossibleCountdown, help: "Show the active Codex rolling-window reset.")
-            toggleRow("Scheduled session", isOn: $codexSessionPinger.showScheduledCountdown, help: "Show the next saved Codex ping time.")
-            if codexSessionPinger.showNextPossibleCountdown && codexSessionPinger.showScheduledCountdown {
+            toggleRow("Next possible session", isOn: $codexDraft.showNextPossibleCountdown, help: "Show the active Codex rolling-window reset.")
+            toggleRow("Scheduled session", isOn: $codexDraft.showScheduledCountdown, help: "Show the next saved Codex ping time.")
+            if codexDraft.showNextPossibleCountdown && codexDraft.showScheduledCountdown {
                 VStack(alignment: .leading, spacing: 6) {
                     fieldLabel("Main focus")
-                    Picker("Main focus", selection: $codexSessionPinger.countdownFocus) {
+                    Picker("Main focus", selection: $codexDraft.countdownFocus) {
                         ForEach(CodexSessionPinger.CountdownFocus.allCases) { focus in
                             Text(focus.label).tag(focus)
                         }
@@ -369,12 +373,12 @@ struct SettingsView: View {
                     .help("The other enabled countdown appears underneath in gray.")
                 }
             }
-            toggleRow("Start sessions when available", isOn: $codexSessionPinger.autoStartAvailableSessions, help: "Starts an available session unless a scheduled ping is due within five hours.")
+            toggleRow("Start sessions when available", isOn: $codexDraft.autoStartAvailableSessions, help: "Starts an available session unless a scheduled ping is due within five hours.")
         }
     }
 
     private func addCodexSlot() {
-        let current = codexSessionPinger.slots
+        let current = codexDraft.slots
         for hour in 0...23 {
             let candidate = current + [CodexSessionPinger.ScheduleSlot(hour: hour, minute: 0)]
             let minutes = candidate.map { $0.hour * 60 + $0.minute }.sorted()
@@ -383,15 +387,15 @@ struct SettingsView: View {
                 return next - minute >= 5 * 60
             }
             if valid {
-                codexSessionPinger.slots.append(CodexSessionPinger.ScheduleSlot(hour: hour, minute: 0))
+                codexDraft.slots.append(CodexSessionPinger.ScheduleSlot(hour: hour, minute: 0))
                 return
             }
         }
     }
 
     private func removeCodexSlot(at index: Int) {
-        guard codexSessionPinger.slots.count > 1 else { return }
-        codexSessionPinger.slots.remove(at: index)
+        guard codexDraft.slots.count > 1 else { return }
+        codexDraft.slots.remove(at: index)
     }
 
     private func codexTimeNumbers(for hour: Int) -> String {
@@ -499,10 +503,9 @@ struct SettingsView: View {
     private var codexPingAlertsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionHeader(text: "Ping alerts")
-            toggleRow("Ping failures", isOn: $codexSessionPinger.notifyOnFailure)
-            toggleRow("New session available", isOn: $codexSessionPinger.notifySessionAvailable)
-            toggleRow("Session started by app", isOn: $codexSessionPinger.notifySessionStarted)
-            toggleRow("Scheduled ping sent", isOn: $codexSessionPinger.notifyOnSuccess)
+            TrackerPingAlertSettings(failures: $codexDraft.notifyOnFailure, available: $codexDraft.notifySessionAvailable,
+                sent: $codexDraft.notifySessionStarted, scheduled: $codexDraft.notifyOnSuccess,
+                accent: GPTTheme.accent, clearGlass: preferClearGlass)
         }
     }
 
@@ -511,7 +514,9 @@ struct SettingsView: View {
             SectionHeader(text: "Service alerts")
             toggleRow("OpenAI service outages", isOn: $notifyOnServiceOutage)
             toggleRow("OpenAI degraded performance", isOn: $notifyOnServiceDegraded)
-            Button("Send test notification") { appState.sendTestNotification() }.gptGhostButton()
+            Button("Send test notification") {
+                appState.sendTestNotification(provider: settingsScope == .chatGPT ? .chatGPT : .codex)
+            }.gptGhostButton()
             if let status = appState.notificationTestStatus {
                 Text(status).font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
@@ -528,10 +533,10 @@ struct SettingsView: View {
             if combinedMode && settingsScope == .codex {
                 toggleRow(
                     "Wake Mac for scheduled pings",
-                    isOn: $codexSessionPinger.enableScheduledWake,
+                    isOn: $codexDraft.enableScheduledWake,
                     help: "Uses the shared system helper. Codex and Claude keep separate schedules. Keep the Mac connected to power."
                 )
-                if codexSessionPinger.enableScheduledWake {
+                if codexDraft.enableScheduledWake {
                     if let result = codexSessionPinger.wakeTestResult {
                         Label(result.message, systemImage: codexWakeResultSymbol(result.outcome))
                             .font(.system(size: 10, weight: .medium))
@@ -612,9 +617,9 @@ struct SettingsView: View {
             accent: GPTTheme.accent,
             testTitle: isTestingConnection || appState.isRefreshingUsage ? "Testing…" : "Test connection",
             testDisabled: isTestingConnection || appState.isRefreshingUsage,
-            saveDisabled: combinedMode && settingsScope == .codex && codexSessionPinger.scheduleValidationMessage != nil,
+            saveDisabled: combinedMode && settingsScope == .codex && CodexSessionPinger.validationMessage(for: codexDraft.slots) != nil,
             onTest: runConnectionTest,
-            onCancel: { appState.closeSettingsWindow?() },
+            onCancel: { discardChanges = true; appState.closeSettingsWindow?() },
             onSave: { save() }
         ) {
             if let connectionTestResult {
@@ -631,7 +636,7 @@ struct SettingsView: View {
         connectionTestResult = nil
         if combinedMode && settingsScope == .codex {
             Task {
-                let result = await codexSessionPinger.testConnection()
+                let result = await codexSessionPinger.testConnection(preferences: codexDraft)
                 await MainActor.run {
                     connectionTestResult = result
                     isTestingConnection = false
@@ -808,6 +813,7 @@ struct SettingsView: View {
     }
 
     private func loadCurrentValues() {
+        codexDraft = codexSessionPinger.preferences
         showCategoryTabs = settings.showCategoryTabs
         showHistoryChart = settings.showHistoryChart
         automaticallyShowNewUsageTracks = settings.automaticallyShowNewUsageTracks
@@ -828,6 +834,10 @@ struct SettingsView: View {
     }
 
     private func save(showPopoverAfterClose: Bool = false, closeWindow: Bool = true) {
+        if combinedMode && settingsScope == .codex {
+            guard CodexSessionPinger.validationMessage(for: codexDraft.slots) == nil else { selectedTab = .general; return }
+            codexSessionPinger.applyPreferences(codexDraft)
+        }
         settings.showCategoryTabs = showCategoryTabs
         settings.showHistoryChart = showHistoryChart
         settings.automaticallyShowNewUsageTracks = automaticallyShowNewUsageTracks

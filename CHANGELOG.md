@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Share Claude/Codex notification delivery, foreground presentation, threshold/reset policy, and ping-alert controls. Isolate provider notification IDs, request sound consistently, avoid duplicate success alerts, and describe successful pings without claiming a new usage window.
+- Match scheduling controls and Save/Cancel behavior, route connection tests through the real pingers, and isolate provider logout cookies in the combined app.
+- Add an optional Claude weekly trend using the same history storage and chart components as Codex, with separate provider data and clear-history controls.
+
 - Pin Codex pings to their exact saved Work conversation, reject redirects or changed response IDs, serialize shared browser operations, and record the destination ID with each ping. Uncertain deliveries are not blindly retried, and an unconfirmed first chat pauses automatic creation instead of producing duplicates.
 
 - Added dedicated same-conversation pingers for Codex Work and ChatGPT Chat, using the live account model catalog and server-confirmed model metadata; Codex defaults to GPT-5.6 Sol with Light effort and ChatGPT defaults to GPT-5.3 Mini.

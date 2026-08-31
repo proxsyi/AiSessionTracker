@@ -1,6 +1,7 @@
 import SwiftUI
 import KeyboardShortcuts
 import GPTTrackerFeature
+import TrackerDesignSystem
 
 private extension KeyboardShortcuts.Name {
     static let toggleClaudePinger = Self(
@@ -33,9 +34,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        TrackerNotifications.shared.configure()
+        if ProcessInfo.processInfo.arguments.contains("--verify-notifications") {
+            Task {
+                print(await TrackerNotifications.shared.verifyDelivery())
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--verify-codex-chat-reuse") {
             Task {
                 print(await gptFeature.verifyCodexChatReuse())
+                NSApp.terminate(nil)
+            }
+            return
+        }
+        if ProcessInfo.processInfo.arguments.contains("--verify-provider-pings") {
+            Task {
+                let claude = await appState.testConnection(configuration: .init(
+                    sessionKey: settings.sessionKey, organizationID: settings.organizationID,
+                    cookieHeader: settings.effectiveCookieHeader, model: settings.model, message: settings.message
+                ))
+                let codex = await gptFeature.verifyCodexChatReuse()
+                let report: [String: Any] = ["claudePassed": appState.status == .success,
+                    "claudeResult": claude, "claudeConversationID": settings.conversationID,
+                    "codex": (try? JSONSerialization.jsonObject(with: Data(codex.utf8))) ?? codex]
+                if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]),
+                   let text = String(data: data, encoding: .utf8) { print(text) }
                 NSApp.terminate(nil)
             }
             return

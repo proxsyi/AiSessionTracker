@@ -31,12 +31,8 @@ final class AppState: ObservableObject {
 
     private let updateTimer = TrackerInvalidatingTimer()
     private let usageTimer = TrackerInvalidatingTimer()
-    private var usageBaselined = false
-    private var notifiedThresholds: [String: Set<Int>] = [:]
-    private var notifiedUnavailableTracks: Set<String> = []
-    private var lastResetDates: [String: Date] = [:]
-    private let resetJitterTolerance: TimeInterval = 120
-    private var lastKnownServiceLevel: GPTServiceStatus.Level?
+    private var usageAlerts: [String: TrackerUsageAlertState] = [:]
+    private var serviceAlerts = TrackerServiceAlertState()
     private var autoUpdateAttemptedVersions: Set<String> = []
     private let updatesEnabled: Bool
 
@@ -68,6 +64,9 @@ final class AppState: ObservableObject {
     func refreshUsage() async {
         guard !isRefreshingUsage else { return }
         isRefreshingUsage = true
+        defer { isRefreshingUsage = false }
+        let credential = settings.sessionKey
+        let organization = settings.organizationID
         async let statusCheck = UsageChecker.fetchServiceStatus()
 
         do {
@@ -76,6 +75,7 @@ final class AppState: ObservableObject {
                 organizationID: settings.organizationID,
                 cookieHeader: settings.effectiveCookieHeader
             )
+            guard credential == settings.sessionKey, organization == settings.organizationID else { return }
             usage = fetched
             usageError = Self.partialUsageMessage(for: fetched.sourceWarnings)
             if let plan = fetched.planType, !plan.isEmpty {
@@ -85,6 +85,7 @@ final class AppState: ObservableObject {
             history.record(fetched)
             notifyUsageThresholdsIfNeeded(for: fetched)
         } catch {
+            guard credential == settings.sessionKey, organization == settings.organizationID else { return }
             usageError = (error as? UsageError)?.localizedDescription ?? error.localizedDescription
         }
 
@@ -93,7 +94,6 @@ final class AppState: ObservableObject {
             serviceStatus = status
         }
         await refreshModelCatalog()
-        isRefreshingUsage = false
     }
 
     private func refreshModelCatalog() async {
@@ -114,10 +114,7 @@ final class AppState: ObservableObject {
     func clearAccountData() {
         usage = nil
         usageError = nil
-        usageBaselined = false
-        notifiedThresholds.removeAll()
-        notifiedUnavailableTracks.removeAll()
-        lastResetDates.removeAll()
+        usageAlerts.removeAll()
         pingStatus = nil
     }
 
@@ -167,37 +164,17 @@ final class AppState: ObservableObject {
 
         for track in fetched.tracks {
             let id = track.preferenceID
-            guard settings.isAlertEnabled(for: id) else { continue }
-
-            if let reset = track.resetsAt {
-                if let old = lastResetDates[id], abs(reset.timeIntervalSince(old)) > resetJitterTolerance {
-                    notifiedThresholds[id] = []
-                    notifiedUnavailableTracks.remove(id)
+            let events = usageAlerts[id, default: TrackerUsageAlertState()].observe(
+                percent: track.usedPercent, reset: track.resetsAt, remaining: track.remaining,
+                blocked: track.isBlocked, enabled: settings.isAlertEnabled(for: id),
+                thresholds: settings.alertThresholds(for: id)
+            )
+            for event in events {
+                switch event {
+                case .threshold(let value): newlyCrossed.append((track, value))
+                case .exhausted: newlyUnavailable.append(track)
                 }
-                lastResetDates[id] = reset
             }
-
-            if let percent = track.usedPercent {
-                var alreadyNotified = notifiedThresholds[id] ?? []
-                alreadyNotified = alreadyNotified.filter { $0 <= percent + 10 }
-                let thresholds = settings.alertThresholds(for: id)
-                let crossed = thresholds.sorted().filter { percent >= $0 && !alreadyNotified.contains($0) }
-                alreadyNotified.formUnion(crossed)
-                notifiedThresholds[id] = alreadyNotified
-                newlyCrossed.append(contentsOf: crossed.map { (track, $0) })
-            } else if track.isBlocked || track.remaining == 0 {
-                if !notifiedUnavailableTracks.contains(id) {
-                    notifiedUnavailableTracks.insert(id)
-                    newlyUnavailable.append(track)
-                }
-            } else {
-                notifiedUnavailableTracks.remove(id)
-            }
-        }
-
-        guard usageBaselined else {
-            usageBaselined = true
-            return
         }
 
         for (track, threshold) in newlyCrossed {
@@ -205,7 +182,8 @@ final class AppState: ObservableObject {
             sendNotification(
                 identifier: "usage-\(track.preferenceID)-\(threshold)",
                 title: "\(track.title) reached \(threshold)%",
-                body: "Current usage is \(track.usedPercent ?? threshold)%.\(reset)"
+                body: "Current usage is \(track.usedPercent ?? threshold)%.\(reset)",
+                provider: (track.scope == .codex || track.scope == .workspace) ? .codex : .chatGPT
             )
         }
         for track in newlyUnavailable {
@@ -213,7 +191,8 @@ final class AppState: ObservableObject {
             sendNotification(
                 identifier: "usage-unavailable-\(track.preferenceID)",
                 title: "\(track.title) is unavailable",
-                body: "The reported allowance has been exhausted.\(reset)"
+                body: "The reported allowance has been exhausted.\(reset)",
+                provider: (track.scope == .codex || track.scope == .workspace) ? .codex : .chatGPT
             )
         }
     }
@@ -226,8 +205,13 @@ final class AppState: ObservableObject {
     }
 
     private func notifyServiceChangeIfNeeded(newStatus: GPTServiceStatus) {
-        defer { lastKnownServiceLevel = newStatus.level }
-        guard let previous = lastKnownServiceLevel, previous != newStatus.level else { return }
+        let level: TrackerServiceAlertState.Level
+        switch newStatus.level {
+        case .outage: level = .outage
+        case .degraded: level = .degraded
+        case .operational: level = .operational
+        }
+        guard serviceAlerts.observe(level, outages: settings.notifyOnServiceOutage, degraded: settings.notifyOnServiceDegraded) else { return }
         switch newStatus.level {
         case .outage:
             guard settings.notifyOnServiceOutage else { return }
@@ -288,66 +272,18 @@ final class AppState: ObservableObject {
         }
     }
 
-    func sendTestNotification() {
+    func sendTestNotification(provider: TrackerNotificationProvider = .codex) {
         notificationTestStatus = nil
-        guard runningInsideProperAppBundle else {
-            notificationTestStatus = "Run the installed app bundle to test notifications."
-            return
+        Task { [weak self] in
+            self?.notificationTestStatus = await TrackerNotifications.shared.sendTest(provider: provider)
         }
-        UNUserNotificationCenter.current().getNotificationSettings { [weak self] notificationSettings in
-            let authorizationStatus = notificationSettings.authorizationStatus
-            Task { @MainActor in
-                guard let self else { return }
-                switch authorizationStatus {
-                case .denied:
-                    self.notificationTestStatus = "Notifications are turned off for GPT Usage Tracker in System Settings."
-                case .notDetermined:
-                    do {
-                        let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
-                        if granted { self.deliverTestNotification() }
-                        else { self.notificationTestStatus = "Notification permission was not granted." }
-                    } catch {
-                        self.notificationTestStatus = "macOS could not request notification permission: \(error.localizedDescription)"
-                    }
-                default:
-                    self.deliverTestNotification()
-                }
-            }
-        }
-    }
-
-    private func deliverTestNotification() {
-        let content = UNMutableNotificationContent()
-        content.title = "GPT Usage Tracker"
-        content.body = "Usage alerts are working."
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: "test-notification", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { [weak self] error in
-            Task { @MainActor in
-                self?.notificationTestStatus = error.map { "macOS rejected the notification: \($0.localizedDescription)" }
-                    ?? "Test notification sent."
-            }
-        }
-    }
-
-    private var runningInsideProperAppBundle: Bool {
-        Bundle.main.bundleIdentifier != nil && Bundle.main.object(forInfoDictionaryKey: "CFBundleIdentifier") != nil
     }
 
     private func requestNotificationPermission() {
-        guard runningInsideProperAppBundle else { return }
-        Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+        TrackerNotifications.shared.requestPermission()
     }
 
-    private func sendNotification(identifier: String, title: String, body: String) {
-        guard runningInsideProperAppBundle else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: identifier, content: content, trigger: nil),
-            withCompletionHandler: nil
-        )
+    private func sendNotification(identifier: String, title: String, body: String, provider: TrackerNotificationProvider = .openAI) {
+        TrackerNotifications.shared.send(provider: provider, event: identifier, title: title, body: body)
     }
 }

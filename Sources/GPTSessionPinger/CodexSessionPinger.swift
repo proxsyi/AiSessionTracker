@@ -34,8 +34,64 @@ final class CodexSessionPinger: ObservableObject {
         var hour: Int
         var minute: Int
 
-        var id: String { "\\(hour)-\\(minute)" }
+        var id: String { "\(hour)-\(minute)" }
         var dateComponents: DateComponents { DateComponents(hour: hour, minute: minute) }
+    }
+
+    struct Preferences: Equatable {
+        var enabled: Bool = true
+        var model: String = ChatGPTModelCatalog.lowestUsageWorkModelSlug
+        var reasoningEffort: String = "min"
+        var message: String = "Say 1"
+        var slots: [ScheduleSlot] = [5, 10, 15, 20].map { ScheduleSlot(hour: $0, minute: 0) }
+        var notifyOnFailure: Bool = true
+        var notifyOnSuccess: Bool = true
+        var notifySessionAvailable: Bool = true
+        var notifySessionStarted: Bool = true
+        var showNextPossibleCountdown: Bool = true
+        var showScheduledCountdown: Bool = true
+        var countdownFocus: CountdownFocus = .nextPossible
+        var autoStartAvailableSessions: Bool = false
+        var enableScheduledWake: Bool = false
+    }
+
+    var preferences: Preferences {
+        Preferences(
+            enabled: enabled,
+            model: model,
+            reasoningEffort: reasoningEffort,
+            message: message,
+            slots: slots,
+            notifyOnFailure: notifyOnFailure,
+            notifyOnSuccess: notifyOnSuccess,
+            notifySessionAvailable: notifySessionAvailable,
+            notifySessionStarted: notifySessionStarted,
+            showNextPossibleCountdown: showNextPossibleCountdown,
+            showScheduledCountdown: showScheduledCountdown,
+            countdownFocus: countdownFocus,
+            autoStartAvailableSessions: autoStartAvailableSessions,
+            enableScheduledWake: enableScheduledWake
+        )
+    }
+
+    func applyPreferences(_ values: Preferences) {
+        guard Self.validationMessage(for: values.slots) == nil else { return }
+        enabled = values.enabled
+        model = values.model
+        reasoningEffort = values.reasoningEffort
+        let trimmedMessage = values.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        message = trimmedMessage.isEmpty ? "Say 1" : trimmedMessage
+        slots = values.slots
+        notifyOnFailure = values.notifyOnFailure
+        notifyOnSuccess = values.notifyOnSuccess
+        notifySessionAvailable = values.notifySessionAvailable
+        notifySessionStarted = values.notifySessionStarted
+        showNextPossibleCountdown = values.showNextPossibleCountdown
+        showScheduledCountdown = values.showScheduledCountdown
+        countdownFocus = values.countdownFocus
+        autoStartAvailableSessions = values.autoStartAvailableSessions
+        enableScheduledWake = values.enableScheduledWake
+        reschedule()
     }
 
     struct PingRecord: Codable, Identifiable, Equatable {
@@ -112,9 +168,7 @@ final class CodexSessionPinger: ObservableObject {
     private let timer = TrackerInvalidatingTimer()
     private var rollingFiveHourPercent: Int?
     private var rollingFiveHourReset: Date?
-    private var previousRollingFiveHourPercent: Int?
-    private var previousRollingFiveHourReset: Date?
-    private var usageBaselined = false
+    private var sessionAvailability = TrackerSessionAvailabilityState()
     private var autoStartPending = false
     private var wakeSyncGeneration = 0
     private let wakeScheduleCoordinator = CodexWakeScheduleCoordinator()
@@ -211,7 +265,7 @@ final class CodexSessionPinger: ObservableObject {
 
     var scheduleValidationMessage: String? { Self.validationMessage(for: slots) }
 
-    private static func validationMessage(for slots: [ScheduleSlot]) -> String? {
+    static func validationMessage(for slots: [ScheduleSlot]) -> String? {
         let sorted = slots.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
         guard !sorted.isEmpty else { return "Add at least one scheduled Codex ping." }
         guard sorted.allSatisfy({ (0...23).contains($0.hour) && (0...59).contains($0.minute) }) else {
@@ -233,9 +287,10 @@ final class CodexSessionPinger: ObservableObject {
         Task { _ = await sendPing(manual: true) }
     }
 
-    func testConnection() async -> String {
+    func testConnection(preferences: Preferences? = nil) async -> String {
         guard hostAllowsPinging else { return "Codex session pinging is available only in Session Tracker." }
-        _ = await sendPing(manual: true)
+        guard !isPinging else { return "A Codex ping is already running." }
+        _ = await sendPing(manual: true, preferences: preferences)
         return status ?? "Codex connection test finished."
     }
 
@@ -279,14 +334,16 @@ final class CodexSessionPinger: ObservableObject {
 
     func updateUsage(_ usage: GPTUsage?) {
         guard hostAllowsPinging else { return }
-        previousRollingFiveHourPercent = rollingFiveHourPercent
-        previousRollingFiveHourReset = rollingFiveHourReset
-        rollingFiveHourPercent = usage?.rollingFiveHourPercent
-        rollingFiveHourReset = usage?.rollingFiveHourResetsAt
+        guard let usage else {
+            rollingFiveHourPercent = nil
+            rollingFiveHourReset = nil
+            sessionAvailability = TrackerSessionAvailabilityState()
+            return
+        }
+        rollingFiveHourPercent = usage.rollingFiveHourPercent
+        rollingFiveHourReset = usage.rollingFiveHourResetsAt
 
-        defer { usageBaselined = usage != nil }
-        guard usage != nil else { return }
-        if usageBaselined, sessionBecameAvailable(), notifySessionAvailable {
+        if sessionAvailability.observe(percent: rollingFiveHourPercent, reset: rollingFiveHourReset), notifySessionAvailable {
             notify(
                 identifier: "codex-session-available",
                 title: "A new Codex session is available",
@@ -330,16 +387,18 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     @discardableResult
-    private func sendPing(manual: Bool) async -> Bool {
+    private func sendPing(manual: Bool, preferences: Preferences? = nil) async -> Bool {
         guard hostAllowsPinging else { return false }
         guard !isPinging else { return false }
+        let requested = preferences ?? self.preferences
         guard !needsChatRecovery else {
-            status = "The first ping's chat was not confirmed. Automatic creation is paused to avoid a duplicate. Check Work before choosing Start fresh chat."
+            recordFailure("The first ping's chat was not confirmed. Automatic creation is paused to avoid a duplicate. Check Work before choosing Start fresh chat.", manual: manual)
+            reschedule()
             return false
         }
         guard settings.isConfigured else {
-            status = "Sign in to ChatGPT before sending a Codex ping."
-            addRecord(success: false, summary: status ?? "Missing credentials", model: nil)
+            recordFailure("Sign in to ChatGPT before sending a Codex ping.", manual: manual)
+            reschedule()
             return false
         }
         isPinging = true
@@ -362,11 +421,11 @@ final class CodexSessionPinger: ObservableObject {
                 let outcome = try await ChatGPTClient.sendPing(
                     auth: auth,
                     cookieHeader: settings.effectiveCookieHeader,
-                    model: model,
-                    modelTitle: settings.pingModelTitle(for: model),
+                    model: requested.model,
+                    modelTitle: settings.pingModelTitle(for: requested.model),
                     mode: .work,
-                    reasoningEffort: reasoningEffort,
-                    message: message,
+                    reasoningEffort: requested.reasoningEffort,
+                    message: requested.message,
                     conversationID: conversationID,
                     parentMessageID: parentMessageID,
                     onConversationIdentified: { [weak self] id in
@@ -380,8 +439,8 @@ final class CodexSessionPinger: ObservableObject {
                 lastSuccess = Date()
                 activeModel = outcome.confirmedModel
                 let confirmation = Self.modelConfirmationText(
-                    requestedModel: model,
-                    requestedEffort: reasoningEffort,
+                    requestedModel: requested.model,
+                    requestedEffort: requested.reasoningEffort,
                     confirmedModel: outcome.confirmedModel,
                     confirmedEffort: outcome.confirmedReasoningEffort
                 )
@@ -389,18 +448,11 @@ final class CodexSessionPinger: ObservableObject {
                 addRecord(success: true, summary: "Got reply", model: outcome.confirmedModel)
                 Self.defaults.set(lastSuccess, forKey: Keys.lastSuccess)
                 save()
-                if notifySessionStarted {
+                if let alert = TrackerPingAlertPolicy.success(manual: manual, pingSent: notifySessionStarted, scheduledPingSent: notifyOnSuccess) {
                     notify(
-                        identifier: "codex-session-started",
-                        title: "New Codex session started",
-                        body: manual ? "Your manual ping started a new Codex session." : "Session Tracker started a new Codex session."
-                    )
-                }
-                if !manual && notifyOnSuccess {
-                    notify(
-                        identifier: "codex-session-ping-success",
-                        title: "Scheduled Codex ping sent",
-                        body: "The dedicated Codex chat was updated."
+                        identifier: "ping-sent",
+                        title: alert == .scheduledPingSent ? "Scheduled Codex ping sent" : "Codex ping sent",
+                        body: "Your dedicated Codex Work chat replied."
                     )
                 }
                 reschedule()
@@ -416,6 +468,12 @@ final class CodexSessionPinger: ObservableObject {
         let message = (finalError as? ChatGPTPingError)?.localizedDescription
             ?? finalError?.localizedDescription
             ?? "The Codex ping failed."
+        recordFailure(message, manual: manual)
+        reschedule()
+        return false
+    }
+
+    private func recordFailure(_ message: String, manual: Bool) {
         status = message
         addRecord(success: false, summary: message, model: nil)
         save()
@@ -426,18 +484,6 @@ final class CodexSessionPinger: ObservableObject {
                 body: message
             )
         }
-        reschedule()
-        return false
-    }
-
-    private func sessionBecameAvailable() -> Bool {
-        let percentReset = (previousRollingFiveHourPercent ?? 0) >= 100
-            && (rollingFiveHourPercent ?? 100) < 100
-        let resetRolled = previousRollingFiveHourReset.map { previous in
-            guard let current = rollingFiveHourReset else { return false }
-            return previous <= Date() && current.timeIntervalSince(previous) > 120
-        } ?? false
-        return percentReset || resetRolled
     }
 
     private func startAvailableSessionIfNeeded(now: Date = Date()) {
@@ -446,7 +492,7 @@ final class CodexSessionPinger: ObservableObject {
               !autoStartPending,
               let percent = rollingFiveHourPercent,
               percent < 100 else { return }
-        if let next = nextDate(after: now), next.timeIntervalSince(now) <= Self.minimumSpacing { return }
+        if enabled, let next = nextDate(after: now), next.timeIntervalSince(now) <= Self.minimumSpacing { return }
         if let lastSuccess, now.timeIntervalSince(lastSuccess) < Self.minimumSpacing { return }
         autoStartPending = true
         Task { [weak self] in
@@ -648,12 +694,7 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     private func notify(identifier: String, title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
-        )
+        TrackerNotifications.shared.send(provider: .codex, event: identifier, title: title, body: body)
     }
 
     private func save() {

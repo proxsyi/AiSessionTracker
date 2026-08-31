@@ -20,10 +20,35 @@ final class SharedDesignContractTests: XCTestCase {
             XCTAssertTrue(source.contains("TrackerSettingsFieldLabel("), relativePath)
             XCTAssertTrue(source.contains("TrackerSettingsFooter("), relativePath)
             XCTAssertTrue(source.contains("TrackerSettingsThresholdPicker("), relativePath)
+            XCTAssertTrue(source.contains("TrackerPingAlertSettings("), relativePath)
+            XCTAssertTrue(source.contains("Schedule pings"), relativePath)
+            XCTAssertTrue(source.contains("discardChanges = true; appState.closeSettingsWindow?()"), relativePath)
             XCTAssertFalse(source.contains("private enum SettingsTab"), relativePath)
             XCTAssertFalse(source.contains("indicatorWidth"), relativePath)
             XCTAssertFalse(source.contains("tabDragGesture"), relativePath)
         }
+    }
+
+    func testBothPingersUseSharedNotificationAndWindowPolicies() throws {
+        for path in ["Sources/ClaudeSessionPinger/AppState.swift", "Sources/GPTSessionPinger/CodexSessionPinger.swift"] {
+            let source = try String(contentsOf: repositoryRoot.appendingPathComponent(path))
+            XCTAssertTrue(source.contains("TrackerPingAlertPolicy.success("), path)
+            XCTAssertTrue(source.contains("TrackerNotifications.shared.send("), path)
+            XCTAssertTrue(source.contains("TrackerSessionAvailabilityState"), path)
+            XCTAssertFalse(source.contains("UNUserNotificationCenter.current().add"), path)
+        }
+        for path in ["Sources/ClaudeSessionPinger/AppState.swift", "Sources/GPTSessionPinger/AppState.swift"] {
+            let source = try String(contentsOf: repositoryRoot.appendingPathComponent(path))
+            XCTAssertTrue(source.contains("TrackerUsageAlertState"), path)
+            XCTAssertTrue(source.contains("TrackerServiceAlertState"), path)
+        }
+    }
+
+    func testCodexEditablePreferencesAreDraftedUntilSave() throws {
+        let source = try String(contentsOf: repositoryRoot.appendingPathComponent("Sources/GPTSessionPinger/SettingsView.swift"))
+        XCTAssertFalse(source.contains("$codexSessionPinger."))
+        XCTAssertTrue(source.contains("codexSessionPinger.applyPreferences(codexDraft)"))
+        XCTAssertTrue(source.contains("testConnection(preferences: codexDraft)"))
     }
 
     func testProviderMenusUseTheSharedStackCardsRowsStatusAndSessionCard() throws {
@@ -37,6 +62,7 @@ final class SharedDesignContractTests: XCTestCase {
             XCTAssertTrue(source.contains("TrackerMenuUsageRow("), relativePath)
             XCTAssertTrue(source.contains("TrackerMenuServiceStatus("), relativePath)
             XCTAssertTrue(source.contains("TrackerMenuSessionCard("), relativePath)
+            XCTAssertTrue(source.contains("TrackerWeeklyTrend("), relativePath)
             XCTAssertFalse(source.contains("trackerMenuCardLayout()"), relativePath)
         }
     }

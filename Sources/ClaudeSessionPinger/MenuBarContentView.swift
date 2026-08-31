@@ -27,6 +27,7 @@ struct MenuBarContentView: View {
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
                     menuCard { countdownSection }
                 }
+                weeklyTrend
             }
             .environment(\.claudeClearGlass, settings.preferClearGlass)
             .onReceive(clockTimer) { value in now = value }
@@ -41,6 +42,7 @@ struct MenuBarContentView: View {
                 if settings.showNextPossibleCountdown || settings.showScheduledCountdown {
                     menuCard { countdownSection }
                 }
+                weeklyTrend
                 actionsSection
             }
             .environment(\.claudeClearGlass, settings.preferClearGlass)
@@ -48,6 +50,17 @@ struct MenuBarContentView: View {
             .frame(width: 320)
             .background(WindowGlassBackground(clearGlass: settings.preferClearGlass).ignoresSafeArea())
             .onReceive(clockTimer) { value in now = value }
+        }
+    }
+
+    @ViewBuilder
+    private var weeklyTrend: some View {
+        if settings.showHistoryChart && settings.showWeeklyBar {
+            menuCard {
+                TrackerWeeklyTrend(title: "Claude weekly trend",
+                    points: appState.weeklyHistory.points(for: "claude-weekly", since: now.addingTimeInterval(-7 * 86_400)),
+                    color: ClaudeTheme.accent)
+            }
         }
     }
 
@@ -284,7 +297,7 @@ struct MenuBarContentView: View {
         let date = effectiveCountdownFocus == .nextPossible
             ? nextPossibleSessionDate
             : appState.nextFireDate
-        guard let date else { return "Now" }
+        guard let date else { return effectiveCountdownFocus == .scheduled ? "Off" : "Now" }
         if date.timeIntervalSince(now) <= 1 { return "Now" }
         return durationText(until: date)
     }

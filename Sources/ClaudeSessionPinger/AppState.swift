@@ -46,6 +46,7 @@ final class AppState: ObservableObject {
 
     let settings: SettingsStore
     let stats: StatsStore
+    let weeklyHistory = TrackerWeeklyHistoryStore(storageFolder: "ClaudeSessionPinger")
     var requestClosePopover: (() -> Void)?
     var requestTogglePopover: (() -> Void)?
     var requestTogglePopoverFromShortcut: (() -> Void)?
@@ -93,8 +94,9 @@ final class AppState: ObservableObject {
     }
 
     func rescheduleTimer() {
-        scheduler.schedule(slots: settings.scheduleSlots)
-        nextFireDate = scheduler.nextFireDate(slots: settings.scheduleSlots)
+        let slots = settings.scheduledPingsEnabled ? settings.scheduleSlots : []
+        scheduler.schedule(slots: slots)
+        nextFireDate = scheduler.nextFireDate(slots: slots)
         synchronizeWakeSchedule()
     }
 
@@ -170,6 +172,7 @@ final class AppState: ObservableObject {
     }
 
     private func runScheduledPing(automaticWakeDate: Date? = nil) async {
+        guard settings.scheduledPingsEnabled || pendingAutomaticWakeIsTest else { return }
         // On some wakes an overdue Timer can run before NSWorkspace posts
         // didWake. Claim the stored wake here so the power assertion still
         // starts before any network request.
@@ -263,7 +266,7 @@ final class AppState: ObservableObject {
     private func synchronizeWakeSchedule() {
         wakeSyncGeneration += 1
         let generation = wakeSyncGeneration
-        let enabled = settings.enableScheduledWake
+        let enabled = settings.enableScheduledWake && settings.scheduledPingsEnabled
         let slots = settings.scheduleSlots
         if !enabled {
             automaticWakePingTask.task?.cancel()
@@ -362,13 +365,30 @@ final class AppState: ObservableObject {
         }
     }
 
+    struct PingConfiguration {
+        let sessionKey: String
+        let organizationID: String
+        let cookieHeader: String
+        let model: String
+        let message: String
+    }
+
+    func testConnection(configuration: PingConfiguration) async -> String {
+        guard !isPinging else { return "A Claude ping is already running." }
+        _ = await runPing(manual: true, configuration: configuration)
+        return status == .success ? "Success: got reply" : (lastError ?? "Claude ping failed.")
+    }
+
     @discardableResult
-    private func runPing(manual: Bool) async -> Bool {
+    private func runPing(manual: Bool, configuration: PingConfiguration? = nil) async -> Bool {
         guard !isPinging else { return false }
+        let request = configuration ?? PingConfiguration(sessionKey: settings.sessionKey,
+            organizationID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader,
+            model: settings.model, message: settings.message)
         if let last = lastPingDate, !manual, Date().timeIntervalSince(last) < minimumGap {
             return false
         }
-        guard settings.isConfigured else {
+        guard !request.sessionKey.isEmpty, !request.organizationID.isEmpty else {
             status = .failure
             lastError = PingError.missingCredentials.localizedDescription
             stats.addRecord(success: false, summary: "Missing credentials")
@@ -384,7 +404,7 @@ final class AppState: ObservableObject {
         let maxAttempts = 3
         var attempt = 0
         var finished = false
-        let candidates = modelCandidates()
+        let candidates = modelCandidates(selectedModel: request.model)
         var modelIndex = 0
 
         while attempt < maxAttempts && !finished {
@@ -392,12 +412,12 @@ final class AppState: ObservableObject {
             let modelToUse = candidates[min(modelIndex, candidates.count - 1)]
             do {
                 let outcome = try await ClaudeClient.sendPing(
-                    sessionKey: settings.sessionKey,
-                    organizationID: settings.organizationID,
+                    sessionKey: request.sessionKey,
+                    organizationID: request.organizationID,
                     model: modelToUse,
-                    message: settings.message,
+                    message: request.message,
                     conversationID: settings.conversationID,
-                    cookieHeader: settings.effectiveCookieHeader
+                    cookieHeader: request.cookieHeader
                 )
                 settings.conversationID = outcome.conversationID
                 activeModel = modelToUse
@@ -405,13 +425,13 @@ final class AppState: ObservableObject {
                 status = outcome.matchedExpected ? .success : .failure
                 let summary = outcome.matchedExpected ? "Got reply" : "Claude returned an empty reply"
                 stats.addRecord(success: outcome.matchedExpected, summary: summary)
-                if outcome.matchedExpected && settings.notifySessionStarted {
+                if outcome.matchedExpected, let alert = TrackerPingAlertPolicy.success(
+                    manual: manual, pingSent: settings.notifySessionStarted, scheduledPingSent: settings.notifyOnSuccess
+                ) {
                     sendNotification(
-                        identifier: "session-started",
-                        title: "New Claude session started",
-                        body: manual
-                            ? "Your manual ping started a new session."
-                            : "Session Pinger started a new session."
+                        identifier: "ping-sent",
+                        title: alert == .scheduledPingSent ? "Scheduled Claude ping sent" : "Claude ping sent",
+                        body: "Your dedicated Claude chat replied."
                     )
                 }
                 if !outcome.matchedExpected {
@@ -468,8 +488,8 @@ final class AppState: ObservableObject {
 
     /// Try the user's selected model first, then detected and known fallbacks
     /// from lightest to heaviest if Claude rejects that model.
-    private func modelCandidates() -> [String] {
-        let selected = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func modelCandidates(selectedModel: String) -> [String] {
+        let selected = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackPool = (availableModels + UsageChecker.fallbackModels)
             .sorted { modelRank($0) < modelRank($1) }
         var candidates = selected.isEmpty ? [] : [selected]
@@ -540,6 +560,9 @@ final class AppState: ObservableObject {
     func refreshUsage() async {
         guard !isRefreshingUsage else { return }
         isRefreshingUsage = true
+        defer { isRefreshingUsage = false }
+        let credential = settings.sessionKey
+        let organization = settings.organizationID
         async let statusCheck = UsageChecker.fetchServiceStatus()
         do {
             let previousUsage = usage
@@ -548,11 +571,14 @@ final class AppState: ObservableObject {
                 organizationID: settings.organizationID,
                 cookieHeader: settings.effectiveCookieHeader
             )
+            guard credential == settings.sessionKey, organization == settings.organizationID else { return }
             usage = fetched
             usageError = nil
+            weeklyHistory.record(trackID: "claude-weekly", percent: fetched.weeklyPercent, reset: fetched.weeklyResetsAt)
             notifyUsageThresholdsIfNeeded(for: fetched)
             handleSessionAvailability(previous: previousUsage, current: fetched)
         } catch {
+            guard credential == settings.sessionKey, organization == settings.organizationID else { return }
             usageError = (error as? UsageError)?.localizedDescription ?? error.localizedDescription
         }
         if let status = await statusCheck {
@@ -567,31 +593,28 @@ final class AppState: ObservableObject {
         if !models.isEmpty {
             availableModels = models.sorted { modelRank($0) < modelRank($1) }
         }
-        isRefreshingUsage = false
+    }
+
+    func clearAccountData() {
+        usage = nil
+        usageError = nil
+        availableModels = []
+        sessionAlerts = TrackerUsageAlertState()
+        weeklyAlerts = TrackerUsageAlertState()
+        sessionAvailability = TrackerSessionAvailabilityState()
+    }
+
+    func clearWeeklyHistory() {
+        objectWillChange.send()
+        weeklyHistory.clear()
     }
 
     // MARK: - Usage threshold & service status notifications
 
-    private var sessionAvailabilityBaselined = false
+    private var sessionAvailability = TrackerSessionAvailabilityState()
 
     private func handleSessionAvailability(previous: ClaudeUsage?, current: ClaudeUsage) {
-        let wasBaselined = sessionAvailabilityBaselined
-        defer { sessionAvailabilityBaselined = true }
-
-        let becameAvailable = wasBaselined
-            && (previous?.sessionPercent ?? 0) >= 100
-            && (current.sessionPercent ?? 100) < 100
-        let resetRolledForward: Bool
-        if wasBaselined,
-           let oldReset = previous?.sessionResetsAt,
-           let newReset = current.sessionResetsAt {
-            resetRolledForward = oldReset <= Date()
-                && newReset.timeIntervalSince(oldReset) > resetJitterTolerance
-        } else {
-            resetRolledForward = false
-        }
-
-        if becameAvailable || resetRolledForward {
+        if sessionAvailability.observe(percent: current.sessionPercent, reset: current.sessionResetsAt) {
             if settings.notifySessionAvailable {
                 sendNotification(
                     identifier: "session-available",
@@ -619,7 +642,8 @@ final class AppState: ObservableObject {
         }
         guard let sessionPercent = usage.sessionPercent, sessionPercent < 100 else { return }
 
-        if let nextScheduled = scheduler.nextFireDate(after: now, slots: settings.scheduleSlots),
+        if settings.scheduledPingsEnabled,
+           let nextScheduled = scheduler.nextFireDate(after: now, slots: settings.scheduleSlots),
            nextScheduled.timeIntervalSince(now) <= scheduledStartProtectionWindow {
             return
         }
@@ -639,77 +663,22 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Thresholds already notified for the current session window.
-    private var notifiedSessionThresholds: Set<Int> = []
-    /// Thresholds already notified for the current weekly window.
-    private var notifiedWeeklyThresholds: Set<Int> = []
-    /// Reset timestamps last seen -- when these move by more than the jitter
-    /// tolerance, a new window has started and thresholds may fire again.
-    private var lastSessionResetsAt: Date?
-    private var lastWeeklyResetsAt: Date?
-    /// False until the first successful usage fetch of this run. That first
-    /// fetch only records which thresholds are already crossed -- it never
-    /// alerts, so relaunching the app can't re-alert limits hit earlier.
-    private var usageBaselined = false
-    /// The server recomputes reset timestamps on every poll, so two reads of
-    /// the same window can differ by a few seconds. Only a shift bigger than
-    /// this counts as a genuinely new window.
-    private let resetJitterTolerance: TimeInterval = 120
-
-    private func isNewWindow(_ new: Date, comparedTo old: Date?) -> Bool {
-        guard let old else { return true }
-        return abs(new.timeIntervalSince(old)) > resetJitterTolerance
-    }
-    /// nil until the first status check completes, so launching during an
-    /// outage never fires a spurious outage/degraded/recovery notification.
-    private var lastKnownServiceLevel: ClaudeServiceStatus.Level?
+    private var sessionAlerts = TrackerUsageAlertState()
+    private var weeklyAlerts = TrackerUsageAlertState()
+    private var serviceAlerts = TrackerServiceAlertState()
 
     /// Fires each user-selected usage threshold at most once per window.
     /// Guards against the two big false-alert sources: relaunching the app
     /// (the first fetch baselines silently) and server-side jitter in the
     /// reset timestamps (small shifts don't count as a new window).
     private func notifyUsageThresholdsIfNeeded(for fetched: ClaudeUsage) {
-        if let sessionResets = fetched.sessionResetsAt {
-            if isNewWindow(sessionResets, comparedTo: lastSessionResetsAt) {
-                notifiedSessionThresholds.removeAll()
-            }
-            lastSessionResetsAt = sessionResets
-        }
-        if let weeklyResets = fetched.weeklyResetsAt {
-            if isNewWindow(weeklyResets, comparedTo: lastWeeklyResetsAt) {
-                notifiedWeeklyThresholds.removeAll()
-            }
-            lastWeeklyResetsAt = weeklyResets
-        }
-
-        // Self-healing: usage only rises within a window, so a percent now
-        // sitting well below an already-notified threshold means the window
-        // really did reset even if the timestamps never showed it.
-        if let percent = fetched.sessionPercent {
-            notifiedSessionThresholds = notifiedSessionThresholds.filter { $0 <= percent + 10 }
-        }
-        if let percent = fetched.weeklyPercent {
-            notifiedWeeklyThresholds = notifiedWeeklyThresholds.filter { $0 <= percent + 10 }
-        }
-
-        let crossedSession = settings.sessionUsageThresholds.sorted().filter { threshold in
-            (fetched.sessionPercent ?? 0) >= threshold && !notifiedSessionThresholds.contains(threshold)
-        }
-        let crossedWeekly = settings.weeklyUsageThresholds.sorted().filter { threshold in
-            (fetched.weeklyPercent ?? 0) >= threshold && !notifiedWeeklyThresholds.contains(threshold)
-        }
-        notifiedSessionThresholds.formUnion(crossedSession)
-        notifiedWeeklyThresholds.formUnion(crossedWeekly)
-
-        // First successful fetch after launch: record what's already crossed
-        // without alerting -- those limits were hit before this run.
-        if !usageBaselined {
-            usageBaselined = true
-            return
-        }
+        let crossedSession = sessionAlerts.observe(percent: fetched.sessionPercent, reset: fetched.sessionResetsAt,
+            enabled: !settings.sessionUsageThresholds.isEmpty, thresholds: settings.sessionUsageThresholds)
+        let crossedWeekly = weeklyAlerts.observe(percent: fetched.weeklyPercent, reset: fetched.weeklyResetsAt,
+            enabled: !settings.weeklyUsageThresholds.isEmpty, thresholds: settings.weeklyUsageThresholds)
 
         if let percent = fetched.sessionPercent {
-            for threshold in crossedSession {
+            for case .threshold(let threshold) in crossedSession {
                 let reset = fetched.sessionResetsAt.map { " Resets at \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
                 sendNotification(
                     identifier: "usage-session-\(threshold)",
@@ -719,7 +688,7 @@ final class AppState: ObservableObject {
             }
         }
         if let percent = fetched.weeklyPercent {
-            for threshold in crossedWeekly {
+            for case .threshold(let threshold) in crossedWeekly {
                 let reset = fetched.weeklyResetsAt.map { " Resets \($0.formatted(date: .abbreviated, time: .shortened))." } ?? ""
                 sendNotification(
                     identifier: "usage-weekly-\(threshold)",
@@ -733,8 +702,13 @@ final class AppState: ObservableObject {
     /// Notifies when Claude services go down, degrade, or recover -- once
     /// per level transition, gated by the user's notification toggles.
     private func notifyServiceChangeIfNeeded(newStatus: ClaudeServiceStatus) {
-        defer { lastKnownServiceLevel = newStatus.level }
-        guard let previous = lastKnownServiceLevel, previous != newStatus.level else { return }
+        let level: TrackerServiceAlertState.Level
+        switch newStatus.level {
+        case .outage: level = .outage
+        case .degraded: level = .degraded
+        case .operational: level = .operational
+        }
+        guard serviceAlerts.observe(level, outages: settings.notifyOnServiceOutage, degraded: settings.notifyOnServiceDegraded) else { return }
         switch newStatus.level {
         case .outage:
             guard settings.notifyOnServiceOutage else { return }
@@ -811,66 +785,13 @@ final class AppState: ObservableObject {
     /// exactly why nothing appeared otherwise.
     func sendTestNotification() {
         notificationTestStatus = nil
-        guard runningInsideProperAppBundle else {
-            notificationTestStatus = "Run the installed app bundle to test notifications."
-            return
+        Task { [weak self] in
+            self?.notificationTestStatus = await TrackerNotifications.shared.sendTest(provider: .claude)
         }
-        UNUserNotificationCenter.current().getNotificationSettings { [weak self] notificationSettings in
-            let status = notificationSettings.authorizationStatus
-            Task { @MainActor in
-                guard let self else { return }
-                switch status {
-                case .denied:
-                    self.notificationTestStatus = "Notifications are turned off for Session Pinger. Turn them on in System Settings > Notifications > Session Pinger, then test again."
-                case .notDetermined:
-                    do {
-                        let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
-                        if granted {
-                            self.deliverTestNotification()
-                        } else {
-                            self.notificationTestStatus = "Permission wasn't granted, so macOS won't show notifications."
-                        }
-                    } catch {
-                        self.notificationTestStatus = "macOS couldn't request notification permission: \(error.localizedDescription)"
-                    }
-                default:
-                    self.deliverTestNotification()
-                }
-            }
-        }
-    }
-
-    /// Sends the actual test alert and reports delivery errors instead of
-    /// failing silently.
-    private func deliverTestNotification() {
-        let content = UNMutableNotificationContent()
-        content.title = "Test notification"
-        content.body = "Notifications are working."
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: "test-notification", content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { [weak self] error in
-            Task { @MainActor in
-                guard let self else { return }
-                if let error {
-                    self.notificationTestStatus = "macOS rejected the notification: \(error.localizedDescription)"
-                } else {
-                    self.notificationTestStatus = "Test notification sent -- check the top-right of your screen."
-                }
-            }
-        }
-    }
-
-    private var runningInsideProperAppBundle: Bool {
-        Bundle.main.bundleIdentifier != nil && Bundle.main.object(forInfoDictionaryKey: "CFBundleIdentifier") != nil
     }
 
     private func requestNotificationPermission() {
-        guard runningInsideProperAppBundle else {
-            return
-        }
-        Task {
-            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
-        }
+        TrackerNotifications.shared.requestPermission()
     }
 
     private func notifyFailureIfNeeded(message: String) {
@@ -883,12 +804,6 @@ final class AppState: ObservableObject {
     /// Shared local-notification helper. Stable identifiers let the system
     /// coalesce repeats of the same alert instead of stacking duplicates.
     private func sendNotification(identifier: String, title: String, body: String) {
-        guard runningInsideProperAppBundle else { return }
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+        TrackerNotifications.shared.send(provider: .claude, event: identifier, title: title, body: body)
     }
 }

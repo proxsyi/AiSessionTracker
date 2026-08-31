@@ -48,6 +48,7 @@ final class SettingsStore: ObservableObject {
         static let conversationID = "conversationID"
         static let showSessionBar = "showSessionBar"
         static let showWeeklyBar = "showWeeklyBar"
+        static let showHistoryChart = "showHistoryChart"
         static let notifySessionAvailable = "notifySessionAvailable"
         static let notifySessionStarted = "notifySessionStarted"
         static let autoStartAvailableSessions = "autoStartAvailableSessions"
@@ -60,6 +61,8 @@ final class SettingsStore: ObservableObject {
         static let scheduleSlots = "scheduleSlots"
         static let launchAtLogin = "launchAtLogin"
         static let notifyOnFailure = "notifyOnFailure"
+        static let notifyOnSuccess = "notifyOnSuccess"
+        static let scheduledPingsEnabled = "scheduledPingsEnabled"
         static let notifyOnServiceOutage = "notifyOnServiceOutage"
         static let notifyOnServiceDegraded = "notifyOnServiceDegraded"
         static let sessionUsageThresholds = "sessionUsageThresholds"
@@ -87,6 +90,9 @@ final class SettingsStore: ObservableObject {
     }
     @Published var showWeeklyBar: Bool {
         didSet { Self.serviceDefaults.set(showWeeklyBar, forKey: Keys.showWeeklyBar) }
+    }
+    @Published var showHistoryChart: Bool {
+        didSet { Self.serviceDefaults.set(showHistoryChart, forKey: Keys.showHistoryChart) }
     }
     @Published var notifySessionAvailable: Bool {
         didSet { Self.serviceDefaults.set(notifySessionAvailable, forKey: Keys.notifySessionAvailable) }
@@ -130,6 +136,12 @@ final class SettingsStore: ObservableObject {
     }
     @Published var notifyOnFailure: Bool {
         didSet { Self.serviceDefaults.set(notifyOnFailure, forKey: Keys.notifyOnFailure) }
+    }
+    @Published var notifyOnSuccess: Bool {
+        didSet { Self.serviceDefaults.set(notifyOnSuccess, forKey: Keys.notifyOnSuccess) }
+    }
+    @Published var scheduledPingsEnabled: Bool {
+        didSet { Self.serviceDefaults.set(scheduledPingsEnabled, forKey: Keys.scheduledPingsEnabled) }
     }
     @Published var notifyOnServiceOutage: Bool {
         didSet { Self.serviceDefaults.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
@@ -179,6 +191,7 @@ final class SettingsStore: ObservableObject {
         conversationID = defaults.string(forKey: Keys.conversationID) ?? ""
         showSessionBar = defaults.object(forKey: Keys.showSessionBar) == nil ? true : defaults.bool(forKey: Keys.showSessionBar)
         showWeeklyBar = defaults.object(forKey: Keys.showWeeklyBar) == nil ? true : defaults.bool(forKey: Keys.showWeeklyBar)
+        showHistoryChart = defaults.bool(forKey: Keys.showHistoryChart)
         notifySessionAvailable = defaults.object(forKey: Keys.notifySessionAvailable) == nil ? true : defaults.bool(forKey: Keys.notifySessionAvailable)
         notifySessionStarted = defaults.object(forKey: Keys.notifySessionStarted) == nil ? true : defaults.bool(forKey: Keys.notifySessionStarted)
         autoStartAvailableSessions = defaults.bool(forKey: Keys.autoStartAvailableSessions)
@@ -190,6 +203,8 @@ final class SettingsStore: ObservableObject {
         enableScheduledWake = defaults.object(forKey: Keys.enableScheduledWake) == nil ? true : defaults.bool(forKey: Keys.enableScheduledWake)
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         notifyOnFailure = defaults.object(forKey: Keys.notifyOnFailure) == nil ? true : defaults.bool(forKey: Keys.notifyOnFailure)
+        notifyOnSuccess = defaults.bool(forKey: Keys.notifyOnSuccess)
+        scheduledPingsEnabled = defaults.object(forKey: Keys.scheduledPingsEnabled) as? Bool ?? true
         notifyOnServiceOutage = defaults.object(forKey: Keys.notifyOnServiceOutage) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceOutage)
         notifyOnServiceDegraded = defaults.object(forKey: Keys.notifyOnServiceDegraded) == nil ? true : defaults.bool(forKey: Keys.notifyOnServiceDegraded)
         if let data = defaults.data(forKey: Keys.sessionUsageThresholds),
