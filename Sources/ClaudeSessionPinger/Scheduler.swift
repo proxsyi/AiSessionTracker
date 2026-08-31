@@ -3,40 +3,24 @@ import TrackerDesignSystem
 
 @MainActor
 final class Scheduler {
-    private let timer = TrackerInvalidatingTimer()
+    private let scheduler = TrackerDailyScheduler()
     var onFire: (() -> Void)?
+    var onNextFireDateChange: ((Date?) -> Void)?
+
+    init() {
+        scheduler.onFire = { [weak self] in self?.onFire?() }
+        scheduler.onNextFireDateChange = { [weak self] in self?.onNextFireDateChange?($0) }
+    }
 
     func nextFireDate(after date: Date = Date(), slots: [ScheduleSlot]) -> Date? {
-        guard !slots.isEmpty else { return nil }
-        let calendar = Calendar.autoupdatingCurrent
-        var candidates: [Date] = []
-        for dayOffset in 0...1 {
-            guard let dayStart = calendar.date(byAdding: .day, value: dayOffset, to: calendar.startOfDay(for: date)) else { continue }
-            for slot in slots {
-                if let candidate = calendar.date(bySettingHour: slot.hour, minute: slot.minute, second: 0, of: dayStart), candidate > date {
-                    candidates.append(candidate)
-                }
-            }
-        }
-        return candidates.min()
+        TrackerSessionTiming.nextScheduledDate(after: date, slots: slots.map { .init(hour: $0.hour, minute: $0.minute) })
     }
 
     func schedule(slots: [ScheduleSlot]) {
-        timer.timer?.invalidate()
-        guard let next = nextFireDate(slots: slots) else { return }
-        let interval = max(next.timeIntervalSinceNow, 1)
-        let newTimer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.onFire?()
-                self?.schedule(slots: slots)
-            }
-        }
-        RunLoop.main.add(newTimer, forMode: .common)
-        timer.timer = newTimer
+        scheduler.schedule(slots: slots.map { .init(hour: $0.hour, minute: $0.minute) })
     }
 
     func stop() {
-        timer.timer?.invalidate()
-        timer.timer = nil
+        scheduler.stop()
     }
 }

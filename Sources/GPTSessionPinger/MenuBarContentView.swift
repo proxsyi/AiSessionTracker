@@ -117,7 +117,7 @@ struct MenuBarContentView: View {
         menuCard { serviceStatus(for: tab) }
         if embeddedTab != nil, tab == .codex,
            codexSessionPinger.showNextPossibleCountdown || codexSessionPinger.showScheduledCountdown {
-            menuCard { codexSessionPingerCard(tracks: tracks) }
+            menuCard { codexSessionPingerCard }
         }
         if tab == .chatGPT, let reset = primaryResetDate(for: tracks) {
             menuCard { resetCountdown(reset) }
@@ -127,8 +127,8 @@ struct MenuBarContentView: View {
         }
     }
 
-    private func codexSessionPingerCard(tracks: [GPTUsageTrack]) -> some View {
-        let next = codexSessionPinger.nextPossibleSessionDate(resetDate: codexSessionResetDate(for: tracks))
+    private var codexSessionPingerCard: some View {
+        let next = codexSessionPinger.nextPossibleSessionDate(now: now)
         return TrackerMenuSessionCard(
             title: codexPrimaryCountdownTitle,
             countdown: codexPrimaryCountdownText(nextPossible: next),
@@ -362,17 +362,6 @@ struct MenuBarContentView: View {
            let reset = weekly.resetsAt,
            reset > now { return reset }
         return tracks.compactMap(\.resetsAt).filter { $0 > now }.min()
-    }
-
-    /// The pinger's five-hour protection follows the live Codex rolling
-    /// window. Weekly is deliberately not substituted here: it is a separate
-    /// allowance and would make a currently available session look blocked.
-    private func codexSessionResetDate(for tracks: [GPTUsageTrack]) -> Date? {
-        tracks.first(where: {
-            $0.isCodexTrack
-                && $0.title.localizedCaseInsensitiveContains("5 hour")
-                && ($0.resetsAt ?? .distantPast) > now
-        })?.resetsAt
     }
 
     private func countdownText(until date: Date) -> String {

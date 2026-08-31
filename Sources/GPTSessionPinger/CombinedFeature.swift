@@ -89,6 +89,18 @@ public final class GPTFeatureState: ObservableObject {
         await appState.refreshUsage()
     }
 
+    public func sessionTimingSnapshot(now: Date) -> [String: Any] {
+        let pinger = codexSessionPinger
+        return ["scheduleEnabled": pinger.enabled,
+            "slots": pinger.slots.map { String(format: "%02d:%02d", $0.hour, $0.minute) },
+            "nextScheduled": pinger.nextFireDate?.timeIntervalSince1970 as Any? ?? NSNull(),
+            "scheduledSeconds": pinger.nextFireDate.map { max(0, $0.timeIntervalSince(now)) } as Any? ?? NSNull(),
+            "nextPossible": pinger.nextPossibleSessionDate(now: now).timeIntervalSince1970,
+            "possibleSeconds": max(0, pinger.nextPossibleSessionDate(now: now).timeIntervalSince(now)),
+            "reportedReset": appState.usage?.rollingFiveHourResetsAt?.timeIntervalSince1970 as Any? ?? NSNull(),
+            "usageLoaded": appState.usage != nil]
+    }
+
     /// Opt-in signed-app diagnostic. It never creates or resets a chat and
     /// reports only identifiers and results, never account credentials.
     public func verifyCodexChatReuse() async -> String {

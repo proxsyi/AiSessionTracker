@@ -49,10 +49,16 @@ final class CodexSessionPingerTests: XCTestCase {
         XCTAssertEqual(
             CodexSessionPinger.nextPossibleSessionDate(
                 now: now,
-                rollingReset: now.addingTimeInterval(-1),
+                rollingReset: nil,
                 lastSuccess: lastSuccess
             ),
             lastSuccess.addingTimeInterval(5 * 60 * 60)
         )
+    }
+
+    func testReportedResetDoesNotRestartCountdownFromLaterPing() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertEqual(CodexSessionPinger.nextPossibleSessionDate(now: now,
+            rollingReset: now.addingTimeInterval(-1), lastSuccess: now.addingTimeInterval(-60)), now)
     }
 }

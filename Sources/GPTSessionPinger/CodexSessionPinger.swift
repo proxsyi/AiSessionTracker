@@ -165,7 +165,7 @@ final class CodexSessionPinger: ObservableObject {
 
     private let settings: SettingsStore
     private let hostAllowsPinging: Bool
-    private let timer = TrackerInvalidatingTimer()
+    private let scheduler = TrackerDailyScheduler()
     private var rollingFiveHourPercent: Int?
     private var rollingFiveHourReset: Date?
     private var sessionAvailability = TrackerSessionAvailabilityState()
@@ -241,6 +241,13 @@ final class CodexSessionPinger: ObservableObject {
             defaults.removeObject(forKey: Keys.parentMessageID)
         }
         if hostAllowsPinging {
+            scheduler.onNextFireDateChange = { [weak self] in self?.nextFireDate = $0 }
+            scheduler.onFire = { [weak self] in
+                Task { @MainActor in
+                    guard let self, self.enabled else { return }
+                    _ = await self.sendPing(manual: false)
+                }
+            }
             NSWorkspace.shared.notificationCenter.addObserver(
                 self,
                 selector: #selector(handleWake),
@@ -310,14 +317,13 @@ final class CodexSessionPinger: ObservableObject {
         Self.nextPossibleSessionDate(
             now: now,
             rollingReset: resetDate ?? rollingFiveHourReset,
-            lastSuccess: lastSuccess
+            lastSuccess: lastSuccess,
+            percent: rollingFiveHourPercent
         )
     }
 
-    static func nextPossibleSessionDate(now: Date, rollingReset: Date?, lastSuccess: Date?) -> Date {
-        if let rollingReset, rollingReset > now { return rollingReset }
-        if let lastSuccess { return max(now, lastSuccess.addingTimeInterval(Self.minimumSpacing)) }
-        return now
+    static func nextPossibleSessionDate(now: Date, rollingReset: Date?, lastSuccess: Date?, percent: Int? = nil) -> Date {
+        TrackerSessionTiming.nextPossibleDate(now: now, reset: rollingReset, percent: percent, lastSuccess: lastSuccess)
     }
 
     var successCount: Int { records.filter(\.success).count }
@@ -354,42 +360,29 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     func reschedule() {
-        timer.timer?.invalidate()
+        scheduler.stop()
         guard hostAllowsPinging else {
             nextFireDate = nil
             return
         }
-        guard enabled, scheduleValidationMessage == nil, let next = nextDate(after: Date()) else {
+        guard enabled, scheduleValidationMessage == nil else {
             nextFireDate = nil
             synchronizeWakeSchedule()
             return
         }
-        nextFireDate = next
-        let timer = Timer(timeInterval: max(next.timeIntervalSinceNow, 1), repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                _ = await self?.sendPing(manual: false)
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer.timer = timer
+        scheduler.schedule(slots: slots.map { .init(hour: $0.hour, minute: $0.minute) })
         synchronizeWakeSchedule()
     }
 
     private func nextDate(after date: Date) -> Date? {
-        let calendar = Calendar.autoupdatingCurrent
-        let day = calendar.startOfDay(for: date)
-        return (0...1).compactMap { offset in
-            guard let candidateDay = calendar.date(byAdding: .day, value: offset, to: day) else { return nil }
-            return slots.compactMap { calendar.date(bySettingHour: $0.hour, minute: $0.minute, second: 0, of: candidateDay) }
-                .filter { $0 > date }
-                .min()
-        }.min()
+        TrackerSessionTiming.nextScheduledDate(after: date, slots: slots.map { .init(hour: $0.hour, minute: $0.minute) })
     }
 
     @discardableResult
     private func sendPing(manual: Bool, preferences: Preferences? = nil) async -> Bool {
         guard hostAllowsPinging else { return false }
         guard !isPinging else { return false }
+        guard manual || TrackerSessionTiming.allowsAutomaticPing(now: Date(), lastSuccess: lastSuccess) else { return false }
         let requested = preferences ?? self.preferences
         guard !needsChatRecovery else {
             recordFailure("The first ping's chat was not confirmed. Automatic creation is paused to avoid a duplicate. Check Work before choosing Start fresh chat.", manual: manual)
@@ -560,7 +553,7 @@ final class CodexSessionPinger: ObservableObject {
         guard hostAllowsPinging else { return }
         if CodexWakeSupport.consumeSuccessfulTestWake() {
             queueAutomaticWakePing(at: Date().addingTimeInterval(15), isTest: true)
-        } else if enableScheduledWake,
+        } else if enableScheduledWake, enabled,
                   let scheduled = CodexWakeSupport.matchingScheduledPingAfterWake() {
             queueAutomaticWakePing(at: scheduled, isTest: false)
         }
@@ -584,7 +577,7 @@ final class CodexSessionPinger: ObservableObject {
         automaticWakeTask = Task { [weak self] in
             let delay = max(0, date.timeIntervalSinceNow)
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self, isTest || (self.enabled && self.enableScheduledWake) else { return }
             let succeeded = await self.sendPing(manual: false)
             await self.returnToSleepAfterWake(testResult: isTest ? succeeded : nil)
         }

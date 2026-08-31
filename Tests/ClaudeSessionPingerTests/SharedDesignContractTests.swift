@@ -35,12 +35,23 @@ final class SharedDesignContractTests: XCTestCase {
             XCTAssertTrue(source.contains("TrackerPingAlertPolicy.success("), path)
             XCTAssertTrue(source.contains("TrackerNotifications.shared.send("), path)
             XCTAssertTrue(source.contains("TrackerSessionAvailabilityState"), path)
+            XCTAssertTrue(source.contains("TrackerSessionTiming.nextPossibleDate("), path)
+            XCTAssertTrue(source.contains("TrackerSessionTiming.allowsAutomaticPing("), path)
             XCTAssertFalse(source.contains("UNUserNotificationCenter.current().add"), path)
         }
         for path in ["Sources/ClaudeSessionPinger/AppState.swift", "Sources/GPTSessionPinger/AppState.swift"] {
             let source = try String(contentsOf: repositoryRoot.appendingPathComponent(path))
             XCTAssertTrue(source.contains("TrackerUsageAlertState"), path)
             XCTAssertTrue(source.contains("TrackerServiceAlertState"), path)
+        }
+    }
+
+    func testProviderTimersShareImplementationNotState() throws {
+        for path in ["Sources/ClaudeSessionPinger/Scheduler.swift", "Sources/GPTSessionPinger/CodexSessionPinger.swift"] {
+            let source = try String(contentsOf: repositoryRoot.appendingPathComponent(path))
+            XCTAssertTrue(source.contains("private let scheduler = TrackerDailyScheduler()"), path)
+            XCTAssertTrue(source.contains("onNextFireDateChange"), path)
+            XCTAssertFalse(source.contains("Timer(timeInterval:"), path)
         }
     }
 

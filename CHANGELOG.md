@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Share the daily timer engine while keeping Claude and Codex schedules independent. Advance scheduled countdowns before ping work, ignore cancelled callbacks, honor expired server resets, and keep Codex timing independent of visible usage bars.
+
 - Share Claude/Codex notification delivery, foreground presentation, threshold/reset policy, and ping-alert controls. Isolate provider notification IDs, request sound consistently, avoid duplicate success alerts, and describe successful pings without claiming a new usage window.
 - Match scheduling controls and Save/Cancel behavior, route connection tests through the real pingers, and isolate provider logout cookies in the combined app.
 - Add an optional Claude weekly trend using the same history storage and chart components as Codex, with separate provider data and clear-history controls.

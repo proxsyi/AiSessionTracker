@@ -58,7 +58,6 @@ final class AppState: ObservableObject {
     private let scheduler = Scheduler()
     private var isPinging = false
     private var lastPingDate: Date?
-    private let minimumGap: TimeInterval = 60
     private let scheduledStartProtectionWindow: TimeInterval = 5 * 60 * 60
     private var autoStartAttemptPending = false
     private var pendingAutomaticWakePing: Date?
@@ -75,6 +74,7 @@ final class AppState: ObservableObject {
         scheduler.onFire = { [weak self] in
             Task { await self?.runScheduledPing() }
         }
+        scheduler.onNextFireDateChange = { [weak self] in self?.nextFireDate = $0 }
         rescheduleTimer()
         requestNotificationPermission()
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -94,24 +94,20 @@ final class AppState: ObservableObject {
     }
 
     func rescheduleTimer() {
+        if !settings.scheduledPingsEnabled && !pendingAutomaticWakeIsTest {
+            automaticWakePingTask.task?.cancel()
+            automaticWakePingTask.task = nil
+            pendingAutomaticWakePing = nil
+        }
         let slots = settings.scheduledPingsEnabled ? settings.scheduleSlots : []
         scheduler.schedule(slots: slots)
-        nextFireDate = scheduler.nextFireDate(slots: slots)
         synchronizeWakeSchedule()
     }
 
     func nextPossibleSessionDate(now: Date = Date()) -> Date {
-        if let reset = usage?.sessionResetsAt, reset > now { return reset }
-        if let percent = usage?.sessionPercent, percent < 100 { return now }
-
         let latestSuccessfulPing = stats.records.last(where: { $0.success })?.date
-        if let lastStart = [lastPingDate, latestSuccessfulPing].compactMap({ $0 }).max() {
-            return max(now, lastStart.addingTimeInterval(scheduledStartProtectionWindow))
-        }
-
-        // A missing reset must not make the card unusable. With no evidence
-        // of a closed window, the next valid opportunity is the present.
-        return now
+        return TrackerSessionTiming.nextPossibleDate(now: now, reset: usage?.sessionResetsAt,
+            percent: usage?.sessionPercent, lastSuccess: latestSuccessfulPing)
     }
 
     @objc private func handleWake() {
@@ -128,7 +124,7 @@ final class AppState: ObservableObject {
             )
             wakeTestResult = WakeSupport.lastTestResult
             queueAutomaticWakePing(at: testPing, isWakeTest: true)
-        } else if settings.enableScheduledWake,
+        } else if settings.enableScheduledWake, settings.scheduledPingsEnabled,
            let scheduledPing = WakeSupport.matchingScheduledPingAfterWake() {
             beginAutomaticWakeHold()
             queueAutomaticWakePing(at: scheduledPing)
@@ -385,7 +381,9 @@ final class AppState: ObservableObject {
         let request = configuration ?? PingConfiguration(sessionKey: settings.sessionKey,
             organizationID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader,
             model: settings.model, message: settings.message)
-        if let last = lastPingDate, !manual, Date().timeIntervalSince(last) < minimumGap {
+        let latestSuccess = stats.records.last(where: { $0.success })?.date
+        let lastCompletedPing = [lastPingDate, latestSuccess].compactMap { $0 }.max()
+        if !manual && !TrackerSessionTiming.allowsAutomaticPing(now: Date(), lastSuccess: lastCompletedPing) {
             return false
         }
         guard !request.sessionKey.isEmpty, !request.organizationID.isEmpty else {

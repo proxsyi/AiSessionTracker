@@ -35,6 +35,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         TrackerNotifications.shared.configure()
+        if ProcessInfo.processInfo.arguments.contains("--verify-session-timing") {
+            Task {
+                await appState.refreshUsage()
+                await gptFeature.refresh()
+                var snapshots: [[String: Any]] = []
+                for index in 0..<2 {
+                    if index > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+                    let now = Date()
+                    let claude: [String: Any] = ["scheduleEnabled": settings.scheduledPingsEnabled,
+                        "slots": settings.scheduleSlots.map { String(format: "%02d:%02d", $0.hour, $0.minute) },
+                        "nextScheduled": appState.nextFireDate?.timeIntervalSince1970 as Any? ?? NSNull(),
+                        "scheduledSeconds": appState.nextFireDate.map { max(0, $0.timeIntervalSince(now)) } as Any? ?? NSNull(),
+                        "nextPossible": appState.nextPossibleSessionDate(now: now).timeIntervalSince1970,
+                        "possibleSeconds": max(0, appState.nextPossibleSessionDate(now: now).timeIntervalSince(now)),
+                        "reportedReset": appState.usage?.sessionResetsAt?.timeIntervalSince1970 as Any? ?? NSNull(),
+                        "usageLoaded": appState.usage != nil]
+                    snapshots.append(["at": now.timeIntervalSince1970, "claude": claude,
+                        "codex": gptFeature.sessionTimingSnapshot(now: now)])
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: snapshots, options: [.sortedKeys]),
+                   let text = String(data: data, encoding: .utf8) { print(text) }
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--verify-notifications") {
             Task {
                 print(await TrackerNotifications.shared.verifyDelivery())
