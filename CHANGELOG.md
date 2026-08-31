@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Pin Codex pings to their exact saved Work conversation, reject redirects or changed response IDs, serialize shared browser operations, and record the destination ID with each ping. Uncertain deliveries are not blindly retried, and an unconfirmed first chat pauses automatic creation instead of producing duplicates.
+
 - Added dedicated same-conversation pingers for Codex Work and ChatGPT Chat, using the live account model catalog and server-confirmed model metadata; Codex defaults to GPT-5.6 Sol with Light effort and ChatGPT defaults to GPT-5.3 Mini.
 - Added automatic recovery when a saved Claude conversation has ended while preserving the replacement conversation for later pings.
 - Unified Claude and Codex menu/settings composition through the shared design system, retained each provider's tab and scroll position, and kept Settings above normal windows without breaking outside-click menu dismissal.

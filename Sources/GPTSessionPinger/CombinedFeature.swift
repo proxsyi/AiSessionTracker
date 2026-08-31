@@ -89,6 +89,38 @@ public final class GPTFeatureState: ObservableObject {
         await appState.refreshUsage()
     }
 
+    /// Opt-in signed-app diagnostic. It never creates or resets a chat and
+    /// reports only identifiers and results, never account credentials.
+    public func verifyCodexChatReuse() async -> String {
+        let originalID = codexSessionPinger.conversationID
+        let originalChatGPTID = settings.pingConversationID
+        guard !originalID.isEmpty, originalID != originalChatGPTID else {
+            return "{\"passed\":false,\"error\":\"A distinct existing Codex Work chat is required\"}"
+        }
+        var results: [[String: Any]] = []
+        for _ in 0..<2 {
+            let started = Date()
+            let status = await codexSessionPinger.testConnection()
+            let record = codexSessionPinger.records.last
+            let passed = record?.success == true && (record?.date ?? .distantPast) >= started
+                && record?.conversationID == originalID
+                && codexSessionPinger.conversationID == originalID
+                && record?.model?.hasSuffix("-wm") == true
+                && settings.pingConversationID == originalChatGPTID
+            results.append(["passed": passed, "conversationID": codexSessionPinger.conversationID, "status": status])
+            if !passed { break }
+        }
+        let report: [String: Any] = [
+            "passed": results.count == 2 && results.allSatisfy { $0["passed"] as? Bool == true },
+            "originalConversationID": originalID,
+            "chatGPTConversationUnchanged": settings.pingConversationID == originalChatGPTID,
+            "pings": results
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]),
+              let json = String(data: data, encoding: .utf8) else { return "{\"passed\":false}" }
+        return json
+    }
+
     public func refreshWakeSupportState() {
         codexSessionPinger.refreshWakeSupportState()
     }

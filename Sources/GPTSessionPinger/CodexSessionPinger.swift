@@ -44,6 +44,7 @@ final class CodexSessionPinger: ObservableObject {
         let success: Bool
         let summary: String
         let model: String?
+        let conversationID: String?
     }
 
     private enum Keys {
@@ -53,6 +54,7 @@ final class CodexSessionPinger: ObservableObject {
         static let message = "codexSessionPingerMessage"
         static let conversationID = "codexSessionPingerConversationID"
         static let parentMessageID = "codexSessionPingerParentMessageID"
+        static let firstPingPending = "codexSessionPingerFirstPingPending"
         static let slots = "codexSessionPingerScheduleSlots"
         static let lastResult = "codexSessionPingerLastResult"
         static let lastSuccess = "codexSessionPingerLastSuccess"
@@ -70,14 +72,17 @@ final class CodexSessionPinger: ObservableObject {
         static let workComposerMigrationVersion = "codexSessionPingerWorkComposerMigrationVersion"
     }
 
-    private static let defaults = UserDefaults(suiteName: "com.proxsyi.sessiontracker") ?? .standard
+    private static let defaults: UserDefaults = {
+        if Bundle.main.bundleIdentifier == "com.proxsyi.sessiontracker" { return .standard }
+        return UserDefaults(suiteName: "com.proxsyi.sessiontracker") ?? .standard
+    }()
     private static let minimumSpacing: TimeInterval = 5 * 60 * 60
 
     @Published var enabled: Bool { didSet { save(); reschedule() } }
     @Published var model: String { didSet { save() } }
     @Published var reasoningEffort: String { didSet { save() } }
     @Published var message: String { didSet { save() } }
-    @Published var conversationID: String { didSet { save() } }
+    @Published private(set) var conversationID: String { didSet { save() } }
     @Published var parentMessageID: String { didSet { save() } }
     @Published var slots: [ScheduleSlot] { didSet { save(); reschedule() } }
     @Published var notifyOnFailure: Bool { didSet { save() } }
@@ -158,7 +163,7 @@ final class CodexSessionPinger: ObservableObject {
             let recent = Array(decoded.suffix(50))
             if defaults.integer(forKey: Keys.confirmedModelRecordingVersion) < 1 {
                 records = recent.map {
-                    PingRecord(id: $0.id, date: $0.date, success: $0.success, summary: $0.summary, model: nil)
+                    PingRecord(id: $0.id, date: $0.date, success: $0.success, summary: $0.summary, model: nil, conversationID: $0.conversationID)
                 }
                 defaults.set(1, forKey: Keys.confirmedModelRecordingVersion)
                 if let migrated = try? JSONEncoder().encode(records) {
@@ -235,9 +240,15 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     func startFreshChat() {
+        guard !isPinging else { return }
+        Self.defaults.removeObject(forKey: Keys.firstPingPending)
         conversationID = ""
         parentMessageID = ""
         status = "The next Codex ping will use a new dedicated chat."
+    }
+
+    var needsChatRecovery: Bool {
+        conversationID.isEmpty && Self.defaults.bool(forKey: Keys.firstPingPending)
     }
 
     func nextPossibleSessionDate(now: Date = Date(), resetDate: Date? = nil) -> Date {
@@ -322,6 +333,10 @@ final class CodexSessionPinger: ObservableObject {
     private func sendPing(manual: Bool) async -> Bool {
         guard hostAllowsPinging else { return false }
         guard !isPinging else { return false }
+        guard !needsChatRecovery else {
+            status = "The first ping's chat was not confirmed. Automatic creation is paused to avoid a duplicate. Check Work before choosing Start fresh chat."
+            return false
+        }
         guard settings.isConfigured else {
             status = "Sign in to ChatGPT before sending a Codex ping."
             addRecord(success: false, summary: status ?? "Missing credentials", model: nil)
@@ -339,6 +354,11 @@ final class CodexSessionPinger: ObservableObject {
                     accountID: settings.organizationID,
                     cookieHeader: settings.effectiveCookieHeader
                 )
+                if conversationID.isEmpty {
+                    // Persist before sending: a crash or uncertain first delivery
+                    // must not silently create another chat on the next launch.
+                    Self.defaults.set(true, forKey: Keys.firstPingPending)
+                }
                 let outcome = try await ChatGPTClient.sendPing(
                     auth: auth,
                     cookieHeader: settings.effectiveCookieHeader,
@@ -348,9 +368,14 @@ final class CodexSessionPinger: ObservableObject {
                     reasoningEffort: reasoningEffort,
                     message: message,
                     conversationID: conversationID,
-                    parentMessageID: parentMessageID
+                    parentMessageID: parentMessageID,
+                    onConversationIdentified: { [weak self] id in
+                        guard let self else { return }
+                        self.conversationID = id
+                        Self.defaults.removeObject(forKey: Keys.firstPingPending)
+                    }
                 )
-                conversationID = outcome.conversationID
+                conversationID = try ChatGPTConversationIdentity.validate(expected: conversationID, observed: outcome.conversationID)
                 parentMessageID = outcome.parentMessageID
                 lastSuccess = Date()
                 activeModel = outcome.confirmedModel
@@ -382,6 +407,7 @@ final class CodexSessionPinger: ObservableObject {
                 return true
             } catch {
                 finalError = error
+                guard !needsChatRecovery else { break }
                 guard attempt < maxAttempts, isRetryable(error) else { break }
                 try? await Task.sleep(nanoseconds: UInt64(pow(2.0, Double(attempt)) * 1_000_000_000))
             }
@@ -588,7 +614,7 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     private func addRecord(success: Bool, summary: String, model: String?) {
-        records.append(PingRecord(id: UUID(), date: Date(), success: success, summary: summary, model: model))
+        records.append(PingRecord(id: UUID(), date: Date(), success: success, summary: summary, model: model, conversationID: conversationID.isEmpty ? nil : conversationID))
         if records.count > 50 { records.removeFirst(records.count - 50) }
         if let data = try? JSONEncoder().encode(records) { Self.defaults.set(data, forKey: Keys.history) }
     }

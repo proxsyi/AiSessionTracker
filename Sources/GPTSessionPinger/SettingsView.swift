@@ -332,14 +332,15 @@ struct SettingsView: View {
                     .font(.system(size: 10)).foregroundColor(GPTTheme.textSecondary)
             }
             detailRow("Chat", codexSessionPinger.conversationID.isEmpty ? "Created by first ping" : "Dedicated chat")
-            if !codexSessionPinger.conversationID.isEmpty {
+            if !codexSessionPinger.conversationID.isEmpty || codexSessionPinger.needsChatRecovery {
                 HStack {
-                    Button("Open pinger chat") {
-                        if let url = codexSessionPinger.conversationURL { NSWorkspace.shared.open(url) }
+                    if let url = codexSessionPinger.conversationURL {
+                        Button("Open pinger chat") { NSWorkspace.shared.open(url) }
+                            .gptGhostButton()
                     }
-                    .gptGhostButton()
                     Spacer()
-                    Button("Start fresh chat") { codexSessionPinger.startFreshChat() }.gptGhostButton()
+                    Button("Start fresh chat") { codexSessionPinger.startFreshChat() }
+                        .gptGhostButton().disabled(codexSessionPinger.isPinging)
                 }
             }
             if let status = codexSessionPinger.status {

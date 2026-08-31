@@ -33,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if ProcessInfo.processInfo.arguments.contains("--verify-codex-chat-reuse") {
+            Task {
+                print(await gptFeature.verifyCodexChatReuse())
+                NSApp.terminate(nil)
+            }
+            return
+        }
         settingsWindowController = SettingsWindowController(
             settings: settings,
             stats: stats,

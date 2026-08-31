@@ -21,6 +21,8 @@ struct ChatGPTConversationSnapshot: Equatable, Sendable {
 enum ChatGPTPingError: Error, LocalizedError {
     case missingCredentials, sessionExpired, rateLimited, serverError(Int, String), emptyReply
     case modelSelectionFailed(String)
+    case conversationChanged
+    case deliveryUncertain
 
     var errorDescription: String? {
         switch self {
@@ -34,6 +36,8 @@ enum ChatGPTPingError: Error, LocalizedError {
                 : "ChatGPT returned an error (HTTP \(code)): \(trimmed)"
         case .emptyReply: return "ChatGPT accepted the ping but returned no reply."
         case .modelSelectionFailed(let title): return "ChatGPT did not select \(title). Refresh the model list and try again."
+        case .conversationChanged: return "The saved pinger chat could not be verified. No different chat will be used. Open the pinger chat and check access."
+        case .deliveryUncertain: return "The ping may have been sent, but completion could not be confirmed. It will not be retried automatically."
         }
     }
 }
@@ -51,12 +55,13 @@ enum ChatGPTClient {
         message: String,
         conversationID: String?,
         parentMessageID: String?,
+        onConversationIdentified: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         timeout: TimeInterval = 120
     ) async throws -> ChatGPTPingOutcome {
         guard !cookieHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ChatGPTPingError.missingCredentials }
         let conversation = conversationID?.nilIfEmpty
-        _ = auth
         _ = parentMessageID
+        let startedAt = Date()
         let browserResponse = try await ChatGPTBrowserTransport.shared.send(
             message: message,
             conversationID: conversation,
@@ -65,6 +70,7 @@ enum ChatGPTClient {
             mode: mode,
             reasoningEffort: reasoningEffort,
             cookieHeader: cookieHeader,
+            onConversationIdentified: onConversationIdentified,
             timeout: timeout
         )
         let statusCode = browserResponse.statusCode
@@ -80,14 +86,14 @@ enum ChatGPTClient {
             if statusCode == 429 { throw ChatGPTPingError.rateLimited }
             throw ChatGPTPingError.serverError(statusCode, String(data: data, encoding: .utf8) ?? "")
         }
-        guard let browserConversationID = browserResponse.conversationID else {
-            throw ChatGPTPingError.emptyReply
-        }
+        let browserConversationID = try ChatGPTConversationIdentity.validate(
+            expected: conversation, observed: browserResponse.conversationID
+        )
         let snapshot = await waitForConversationSnapshot(
             conversationID: browserConversationID,
             auth: auth,
             cookieHeader: cookieHeader,
-            requireReply: false
+            createdAfter: startedAt
         )
         return ChatGPTPingOutcome(
             conversationID: browserConversationID,
@@ -102,25 +108,28 @@ enum ChatGPTClient {
         parseConversationSnapshot(object)?.metadata
     }
 
-    static func parseConversationSnapshot(_ object: [String: Any]) -> ChatGPTConversationSnapshot? {
+    static func parseConversationSnapshot(_ object: [String: Any], createdAfter: Date? = nil) -> ChatGPTConversationSnapshot? {
         var candidates: [(createdAt: Double, snapshot: ChatGPTConversationSnapshot)] = []
         collectAssistantSnapshots(in: object, into: &candidates)
-        return candidates.max(by: { $0.createdAt < $1.createdAt })?.snapshot
+        let minimumCreatedAt = createdAfter?.timeIntervalSince1970 ?? -.infinity
+        return candidates.filter { $0.createdAt >= minimumCreatedAt }
+            .max(by: { $0.createdAt < $1.createdAt })?.snapshot
     }
 
     private static func waitForConversationSnapshot(
         conversationID: String,
         auth: ChatGPTAuthSession,
         cookieHeader: String,
-        requireReply: Bool
+        createdAfter: Date
     ) async -> ChatGPTConversationSnapshot? {
-        let deadline = Date().addingTimeInterval(requireReply ? 15 : 3)
+        let deadline = Date().addingTimeInterval(15)
         repeat {
             if let snapshot = await conversationSnapshot(
                 conversationID: conversationID,
                 auth: auth,
-                cookieHeader: cookieHeader
-            ), !requireReply || snapshot.replyText?.nilIfEmpty != nil {
+                cookieHeader: cookieHeader,
+                createdAfter: createdAfter
+            ) {
                 return snapshot
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -131,7 +140,8 @@ enum ChatGPTClient {
     private static func conversationSnapshot(
         conversationID: String,
         auth: ChatGPTAuthSession,
-        cookieHeader: String
+        cookieHeader: String,
+        createdAfter: Date
     ) async -> ChatGPTConversationSnapshot? {
         guard let request = ChatGPTWebSession.makeBackendRequest(
             path: "/conversation/\(conversationID)",
@@ -143,7 +153,7 @@ enum ChatGPTClient {
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return parseConversationSnapshot(object)
+        return parseConversationSnapshot(object, createdAfter: createdAfter)
     }
 
     private static func collectAssistantSnapshots(
