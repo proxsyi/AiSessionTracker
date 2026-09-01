@@ -15,6 +15,7 @@ struct SettingsView: View {
     let serviceDisplayName: String?
     let isActive: Bool
     let onOpenSystemSettings: (() -> Void)?
+    let sharedSelectedTab: Binding<TrackerSettingsTab>?
 
     @State private var sessionKeyInput = ""
     @State private var organizationID = ""
@@ -41,7 +42,7 @@ struct SettingsView: View {
     @State private var enableCommandUShortcut = true
     @State private var enableScheduledWake = true
     @State private var preferClearGlass = true
-    @State private var selectedTab: TrackerSettingsTab = .general
+    @State private var localSelectedTab: TrackerSettingsTab = .general
     @State private var autoUpdate = true
     @State private var testResult: String?
     @State private var isTesting = false
@@ -61,7 +62,8 @@ struct SettingsView: View {
         serviceVisibility: Binding<Bool>? = nil,
         serviceDisplayName: String? = nil,
         isActive: Bool = true,
-        onOpenSystemSettings: (() -> Void)? = nil
+        onOpenSystemSettings: (() -> Void)? = nil,
+        selectedTab: Binding<TrackerSettingsTab>? = nil
     ) {
         self.topLeadingInset = topLeadingInset
         self.saveOnDisappear = saveOnDisappear
@@ -72,11 +74,16 @@ struct SettingsView: View {
         self.serviceDisplayName = serviceDisplayName
         self.isActive = isActive
         self.onOpenSystemSettings = onOpenSystemSettings
+        self.sharedSelectedTab = selectedTab
+    }
+
+    private var selectedTab: Binding<TrackerSettingsTab> {
+        sharedSelectedTab ?? $localSelectedTab
     }
 
     var body: some View {
         TrackerSettingsWindow(
-            selectedTab: $selectedTab,
+            selectedTab: selectedTab,
             accent: ClaudeTheme.accent,
             secondary: ClaudeTheme.textSecondary,
             clearGlass: preferClearGlass,
@@ -127,7 +134,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var tabContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            switch selectedTab {
+            switch selectedTab.wrappedValue {
             case .general:
                 settingsCard { accountSection }
                 settingsCard { displaySection }
@@ -137,8 +144,9 @@ struct SettingsView: View {
                 settingsCard { trackedUsageSection }
                 settingsCard { sessionDisplaySection }
                 settingsCard {
-                    SectionHeader(text: "Usage display")
-                    toggleRow("Show weekly trend", isOn: $showHistoryChart)
+                    TrackerSettingsSection("Usage display") {
+                        toggleRow("Show weekly trend", isOn: $showHistoryChart)
+                    }
                 }
             case .alerts:
                 settingsCard { usageAlertsSection }
@@ -194,55 +202,28 @@ struct SettingsView: View {
 
     // MARK: - Sections
 
+    private var accountStatusText: String? {
+        guard !settings.sessionKey.isEmpty else { return nil }
+        guard let plan = appState.usage?.planType, !plan.isEmpty else { return "Connected" }
+        return "Connected · \(plan.replacingOccurrences(of: "_", with: " ").capitalized)"
+    }
+
     private var accountSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Account")
-
-            Button(loginCaptured || !settings.sessionKey.isEmpty ? "Log in again" : "Log in with Claude") {
-                showingLogin = true
+        TrackerAccountSettings(connected: !settings.sessionKey.isEmpty, provider: "Claude",
+            status: accountStatusText,
+            error: settings.credentialPersistenceError,
+            busy: isClearingLogin || appState.status == .sending || isTesting, accent: ClaudeTheme.accent,
+            onLogin: { showingLogin = true }, onLogout: clearLogin) {
+            if isFetchingOrganization { caption("Detecting organization…") }
+            else if loginCaptured && organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Add your organization ID under Keys.").font(.system(size: 11)).foregroundColor(.orange)
             }
-            .claudePrimaryButton()
-            .disabled(isClearingLogin)
-
-            if !settings.sessionKey.isEmpty {
-                Button(isClearingLogin ? "Signing out…" : "Log out") { clearLogin() }
-                    .claudeGhostButton()
-                    .disabled(isClearingLogin || appState.status == .sending || isTesting)
-                    .help("Clears only Claude credentials and embedded-browser data. Codex and ChatGPT are unaffected.")
-            }
-
-            if loginCaptured {
-                Text("Signed in -- session and cookies captured automatically.")
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.accent)
-            } else if !settings.sessionKey.isEmpty {
-                caption("Using a previously captured session (\(settings.maskedSessionKey)).")
-            }
-            if let error = settings.credentialPersistenceError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if isFetchingOrganization {
-                caption("Detecting your organization ID\u{2026}")
-            } else if loginCaptured && organizationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Organization ID not detected. Add lastActiveOrg under Keys.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .help("Open claude.ai, then use Developer Tools → Application → Cookies and paste lastActiveOrg under Keys.")
-            }
-
             keysDisclosure
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var displaySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Menu display")
+        TrackerSettingsSection("Menu display") {
             serviceVisibilityRow
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -292,43 +273,24 @@ struct SettingsView: View {
     }
 
     private var pingSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Ping")
-            toggleRow("Schedule pings", isOn: $scheduledPingsEnabled)
-
-            VStack(alignment: .leading, spacing: 6) {
-                fieldLabel("Model")
-                Picker("Model", selection: $model) {
-                    ForEach(modelOptions, id: \.self) { slug in
-                        Text(modelLabel(slug)).tag(slug)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .tint(ClaudeTheme.accent)
+        TrackerPingSettings(enabled: $scheduledPingsEnabled, message: $message,
+                            accent: ClaudeTheme.accent, clearGlass: preferClearGlass) {
+            Picker("Model", selection: $model) {
+                ForEach(modelOptions, id: \.self) { slug in Text(modelLabel(slug)).tag(slug) }
+            }.labelsHidden().pickerStyle(.menu).frame(maxWidth: .infinity, alignment: .leading).tint(ClaudeTheme.accent)
                 .help("Tries your selected model first, then falls back if Claude rejects it.")
-                HStack {
-                    Button("Use lowest usage") { model = modelOptions.first(where: { $0.contains("haiku") }) ?? model }
-                        .claudeGhostButton()
-                    Button("Refresh models") { Task { await appState.refreshUsage() } }
-                        .claudeGhostButton().disabled(appState.isRefreshingUsage)
-                }
+            HStack {
+                Button("Use lowest usage") { model = modelOptions.first(where: { $0.contains("haiku") }) ?? model }.claudeGhostButton()
+                Button("Refresh models") { Task { await appState.refreshUsage() } }.claudeGhostButton().disabled(appState.isRefreshingUsage)
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                fieldLabel("Message")
-                TextField("Say 1", text: $message)
-                    .textFieldStyle(.plain)
-                    .claudeGlassField()
-            }
-
+        } effort: {
+            EmptyView()
+        } schedule: {
             TrackerScheduleEditor(slots: Binding(
                 get: { slots.map { .init(hour: $0.hour, minute: $0.minute) } },
                 set: { slots = $0.map { .init(hour: $0.hour, minute: $0.minute) } }
             ), accent: ClaudeTheme.accent)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var modelOptions: [String] {
@@ -353,60 +315,13 @@ struct SettingsView: View {
     }
 
     private var activitySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Activity")
-
-            HStack {
-                fieldLabel("Success rate")
-                Spacer()
-                Text(successRateText)
-                    .font(.system(size: 12, weight: .medium).monospacedDigit())
-                    .foregroundColor(ClaudeTheme.textPrimary)
-            }
-
-            HStack(alignment: .firstTextBaseline) {
-                fieldLabel("Last result")
-                Spacer()
-                Text(stats.lastRecord?.summary ?? "—")
-                    .font(.system(size: 11))
-                    .foregroundColor(ClaudeTheme.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.trailing)
-            }
-
-            if let error = appState.lastError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let activeModel = appState.activeModel {
-                caption("Last successful model: \(TrackerModelLabels.claude(activeModel))")
-            }
-
-            caption(settings.conversationID.isEmpty
-                ? "The next ping will create one dedicated Claude chat and reuse it afterward."
-                : "Pings are reusing one dedicated Claude chat.")
-
-            if !settings.conversationID.isEmpty {
-                HStack {
-                    Button("Open pinger chat") {
-                        if let url = URL(string: "https://claude.ai/chat/\(settings.conversationID)") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    .claudeGhostButton()
-                    Spacer()
-                    Button("Start fresh chat") {
-                        settings.conversationID = ""
-                    }
-                    .claudeGhostButton()
-                    .disabled(appState.status == .sending)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        TrackerActivitySettings(successRate: successRateText, lastResult: stats.lastRecord?.summary ?? "—",
+            activeModel: appState.activeModel.map { TrackerModelLabels.claude($0) },
+            hasChat: !settings.conversationID.isEmpty, canStartFresh: !settings.conversationID.isEmpty,
+            busy: appState.status == .sending || isTesting, error: appState.lastError,
+            onOpen: {
+                if let url = URL(string: "https://claude.ai/chat/\(settings.conversationID)") { NSWorkspace.shared.open(url) }
+            }, onStartFresh: { settings.conversationID = "" })
     }
 
     private var successRateText: String {
@@ -415,8 +330,7 @@ struct SettingsView: View {
     }
 
     private var trackedUsageSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Tracked usage")
+        TrackerSettingsSection("Tracked usage") {
             toggleRow("Session (5 hour)", isOn: $showSessionBar, help: "Show Claude's rolling five-hour usage counter.")
             toggleRow("Weekly (7 day)", isOn: $showWeeklyBar, help: "Show Claude's weekly usage counter.")
         }
@@ -424,8 +338,7 @@ struct SettingsView: View {
     }
 
     private var sessionDisplaySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Session display")
+        TrackerSettingsSection("Session display") {
             TrackerSessionDisplaySettings(nextPossible: $showNextPossibleCountdown, scheduled: $showScheduledCountdown,
                 focusScheduled: Binding(get: { countdownFocus == .scheduled }, set: { countdownFocus = $0 ? .scheduled : .nextPossible }),
                 autoStart: $autoStartAvailableSessions, accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
@@ -433,21 +346,18 @@ struct SettingsView: View {
     }
 
     private var usageAlertsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Usage alerts")
-            toggleRow("Session (5 hour)", isOn: thresholdEnabledBinding(selection: $sessionThresholds, defaults: SettingsStore.defaultSessionThresholds), help: "Notify when this counter crosses a selected threshold.")
-            thresholdButtons(selection: $sessionThresholds)
-                .disabled(sessionThresholds.isEmpty)
-            toggleRow("Weekly (7 day)", isOn: thresholdEnabledBinding(selection: $weeklyThresholds, defaults: SettingsStore.defaultWeeklyThresholds), help: "Notify when this counter crosses a selected threshold.")
-            thresholdButtons(selection: $weeklyThresholds)
-                .disabled(weeklyThresholds.isEmpty)
+        TrackerSettingsSection("Usage alerts") {
+            TrackerUsageAlertSetting("Session (5 hour)",
+                enabled: thresholdEnabledBinding(selection: $sessionThresholds, defaults: SettingsStore.defaultSessionThresholds),
+                thresholds: $sessionThresholds, accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
+            TrackerUsageAlertSetting("Weekly (7 day)",
+                enabled: thresholdEnabledBinding(selection: $weeklyThresholds, defaults: SettingsStore.defaultWeeklyThresholds),
+                thresholds: $weeklyThresholds, accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var pingAlertsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Ping alerts")
+        TrackerSettingsSection("Ping alerts") {
             TrackerPingAlertSettings(failures: $notifyOnFailure, available: $notifySessionAvailable,
                 sent: $notifySessionStarted, scheduled: $notifyOnSuccess,
                 accent: ClaudeTheme.accent, clearGlass: preferClearGlass)
@@ -456,29 +366,11 @@ struct SettingsView: View {
     }
 
     private var serviceAlertsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "Service alerts")
-            toggleRow("Claude service outages", isOn: $notifyOnServiceOutage)
-            toggleRow("Claude degraded performance", isOn: $notifyOnServiceDegraded)
-            Button("Send test notification") {
-                appState.sendTestNotification()
-            }
-            .claudeGhostButton()
-            if let status = appState.notificationTestStatus {
-                caption(status)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        TrackerServiceAlertSettings(provider: "Claude", outage: $notifyOnServiceOutage, degraded: $notifyOnServiceDegraded,
+            accent: ClaudeTheme.accent, clearGlass: preferClearGlass, status: appState.notificationTestStatus,
+            onTest: { appState.sendTestNotification() })
     }
 
-    private func thresholdButtons(selection: Binding<Set<Int>>) -> some View {
-        TrackerSettingsThresholdPicker(
-            values: SettingsStore.availableThresholds,
-            selection: selection,
-            accent: ClaudeTheme.accent,
-            clearGlass: preferClearGlass
-        )
-    }
 
     private func thresholdEnabledBinding(selection: Binding<Set<Int>>, defaults: [Int]) -> Binding<Bool> {
         Binding(
@@ -489,74 +381,24 @@ struct SettingsView: View {
         )
     }
 
-    private func wakeTestResultSymbol(_ outcome: WakeTestOutcome) -> String {
-        switch outcome {
-        case .pending: return "clock"
-        case .passed: return "checkmark.circle.fill"
-        case .failed: return "xmark.circle.fill"
-        }
-    }
-
-    private func wakeTestResultColor(_ outcome: WakeTestOutcome) -> Color {
-        switch outcome {
-        case .pending: return ClaudeTheme.textSecondary
-        case .passed: return ClaudeTheme.accent
-        case .failed: return .orange
-        }
-    }
 
     private var appSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionHeader(text: "App")
-            if onOpenSystemSettings == nil {
-                toggleRow("Launch at login", isOn: $launchAtLogin)
-            }
+        TrackerSettingsSection("App") {
+            if onOpenSystemSettings == nil { toggleRow("Launch at login", isOn: $launchAtLogin) }
             toggleRow("Command-U opens menu", isOn: $enableCommandUShortcut)
-            toggleRow(
-                "Wake Mac for scheduled pings",
-                isOn: $enableScheduledWake,
-                help: "Uses the shared system helper. Claude and Codex keep separate schedules. Keep the Mac connected to power."
-            )
-            if enableScheduledWake {
-                if let result = appState.wakeTestResult {
-                    Label(result.message, systemImage: wakeTestResultSymbol(result.outcome))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(wakeTestResultColor(result.outcome))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(spacing: 8) {
-                    if !appState.wakeHelperInstalled {
-                        if let onOpenSystemSettings {
-                            Button("Set up in System") { onOpenSystemSettings() }
-                                .claudeGhostButton()
-                        } else {
-                            Button(appState.isInstallingWakeSupport ? "Installing\u{2026}" : "Install wake support") {
-                                appState.installWakeSupport()
-                            }
-                            .claudePrimaryButton()
-                            .disabled(appState.isInstallingWakeSupport)
-                        }
-                    } else {
-                        Button("Run 2-minute closed-lid test") {
-                            appState.testWakeSupport()
-                        }
-                        .claudeGhostButton()
-                    }
-                }
-                if !appState.wakeHelperInstalled {
-                    caption("Setup required")
-                }
-            }
+            TrackerWakeSettings(enabled: $enableScheduledWake, installed: appState.wakeHelperInstalled,
+                status: appState.wakeSupportStatus, result: appState.wakeTestResult?.message, outcome: appState.wakeTestResult?.outcome.rawValue,
+                accent: ClaudeTheme.accent, clearGlass: preferClearGlass, busy: appState.isInstallingWakeSupport || isTesting || appState.status == .sending,
+                setupTitle: onOpenSystemSettings == nil ? "Install wake support" : "Set up in System",
+                onSetup: { if let onOpenSystemSettings { onOpenSystemSettings() } else { appState.installWakeSupport() } },
+                onTest: { appState.testWakeSupport() })
             toggleRow("Use clear Liquid Glass", isOn: $preferClearGlass, help: "Changes Settings glass transparency immediately.")
-            Button("Clear weekly trend history") { appState.clearWeeklyHistory() }
-                .claudeGhostButton().help("Clears local samples only.")
+            Button("Clear weekly trend history") { appState.clearWeeklyHistory() }.claudeGhostButton().help("Clears local samples only.")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var updatesSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(text: "Updates")
+        TrackerSettingsSection("Updates") {
             toggleRow("Install updates automatically", isOn: $autoUpdate)
             caption("Current version: \(currentVersion)")
             if let update = appState.availableUpdate {
@@ -705,7 +547,7 @@ struct SettingsView: View {
 
     private func save(showPopoverAfterClose: Bool = false, closeWindow: Bool = true) {
         guard scheduleValidationMessage == nil else {
-            withAnimation(.easeInOut(duration: 0.2)) { selectedTab = .general }
+            withAnimation(.easeInOut(duration: 0.2)) { selectedTab.wrappedValue = .general }
             return
         }
         let trimmedSessionKeyInput = sessionKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)

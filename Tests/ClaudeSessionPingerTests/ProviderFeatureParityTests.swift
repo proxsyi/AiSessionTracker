@@ -18,7 +18,8 @@ final class ProviderFeatureParityTests: XCTestCase {
             let source = try String(contentsOf: root.appendingPathComponent(path))
             for control in ["TrackerScheduleEditor(", "TrackerSessionDisplaySettings(", "TrackerPingAlertSettings(",
                             "Use lowest usage", "Refresh models", "Show weekly trend", "Clear weekly trend history",
-                            "Open pinger chat", "Start fresh chat", "Send test notification", "Wake Mac for scheduled pings"] {
+                            "TrackerActivitySettings(", "TrackerAccountSettings(", "TrackerPingSettings(",
+                            "TrackerServiceAlertSettings(", "TrackerWakeSettings(", "TrackerUsageAlertSetting("] {
                 XCTAssertTrue(source.contains(control), "\(path): missing \(control)")
             }
             XCTAssertFalse(source.contains("(suggested) —"))

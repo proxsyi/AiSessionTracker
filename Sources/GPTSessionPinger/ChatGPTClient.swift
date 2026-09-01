@@ -95,12 +95,17 @@ enum ChatGPTClient {
             cookieHeader: cookieHeader,
             createdAfter: startedAt
         )
+        // Browser error cards can resemble assistant replies. Only a fresh,
+        // completed cloud message proves delivery; never retry an uncertain send.
+        guard let snapshot, let reply = snapshot.replyText?.nilIfEmpty else {
+            throw ChatGPTPingError.deliveryUncertain
+        }
         return ChatGPTPingOutcome(
             conversationID: browserConversationID,
             parentMessageID: UUID().uuidString.lowercased(),
-            replyText: browserResponse.replyText?.nilIfEmpty ?? snapshot?.replyText?.nilIfEmpty,
-            confirmedModel: snapshot?.metadata?.model,
-            confirmedReasoningEffort: snapshot?.metadata?.reasoningEffort
+            replyText: reply,
+            confirmedModel: snapshot.metadata?.model,
+            confirmedReasoningEffort: snapshot.metadata?.reasoningEffort
         )
     }
 
@@ -108,9 +113,10 @@ enum ChatGPTClient {
         parseConversationSnapshot(object)?.metadata
     }
 
-    static func parseConversationSnapshot(_ object: [String: Any], createdAfter: Date? = nil) -> ChatGPTConversationSnapshot? {
+    static func parseConversationSnapshot(_ object: [String: Any], createdAfter: Date? = nil,
+                                          requireCompletedReply: Bool = false) -> ChatGPTConversationSnapshot? {
         var candidates: [(createdAt: Double, snapshot: ChatGPTConversationSnapshot)] = []
-        collectAssistantSnapshots(in: object, into: &candidates)
+        collectAssistantSnapshots(in: object, requireCompletedReply: requireCompletedReply, into: &candidates)
         let minimumCreatedAt = createdAfter?.timeIntervalSince1970 ?? -.infinity
         return candidates.filter { $0.createdAt >= minimumCreatedAt }
             .max(by: { $0.createdAt < $1.createdAt })?.snapshot
@@ -143,26 +149,28 @@ enum ChatGPTClient {
         cookieHeader: String,
         createdAfter: Date
     ) async -> ChatGPTConversationSnapshot? {
-        guard let request = ChatGPTWebSession.makeBackendRequest(
-            path: "/conversation/\(conversationID)",
-            auth: auth,
-            cookieHeader: cookieHeader
-        ), let (data, response) = try? await URLSession.shared.data(for: request),
-           let http = response as? HTTPURLResponse,
-           (200...299).contains(http.statusCode),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
+        for path in ["/conversations/\(conversationID)/messages", "/conversation/\(conversationID)"] {
+            guard var request = ChatGPTWebSession.makeBackendRequest(path: path, auth: auth, cookieHeader: cookieHeader) else { continue }
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            if let snapshot = parseConversationSnapshot(object, createdAfter: createdAfter, requireCompletedReply: true) {
+                return snapshot
+            }
         }
-        return parseConversationSnapshot(object, createdAfter: createdAfter)
+        return nil
     }
 
     private static func collectAssistantSnapshots(
         in value: Any,
+        requireCompletedReply: Bool,
         into candidates: inout [(createdAt: Double, snapshot: ChatGPTConversationSnapshot)]
     ) {
         if let dictionary = value as? [String: Any] {
-            if let message = dictionary["message"] as? [String: Any],
-               let author = message["author"] as? [String: Any],
+            let message = dictionary
+            if let author = message["author"] as? [String: Any],
                author["role"] as? String == "assistant" {
                 let metadataDictionary = message["metadata"] as? [String: Any] ?? [:]
                 let model = firstString(in: metadataDictionary, keys: ["model_slug", "model", "default_model_slug"])
@@ -171,14 +179,17 @@ enum ChatGPTClient {
                     ? nil
                     : ChatGPTResponseMetadata(model: model, reasoningEffort: effort)
                 let replyText = assistantText(from: message)
-                if replyText != nil || metadata != nil {
+                let completed = message["status"] as? String == "finished_successfully"
+                    && (message["end_turn"] as? Bool == true || message["channel"] as? String == "final")
+                    && replyText != nil
+                if (!requireCompletedReply || completed) && (replyText != nil || metadata != nil) {
                     let createdAt = (message["create_time"] as? NSNumber)?.doubleValue ?? 0
                     candidates.append((createdAt, ChatGPTConversationSnapshot(replyText: replyText, metadata: metadata)))
                 }
             }
-            for child in dictionary.values { collectAssistantSnapshots(in: child, into: &candidates) }
+            for child in dictionary.values { collectAssistantSnapshots(in: child, requireCompletedReply: requireCompletedReply, into: &candidates) }
         } else if let array = value as? [Any] {
-            for child in array { collectAssistantSnapshots(in: child, into: &candidates) }
+            for child in array { collectAssistantSnapshots(in: child, requireCompletedReply: requireCompletedReply, into: &candidates) }
         }
     }
 

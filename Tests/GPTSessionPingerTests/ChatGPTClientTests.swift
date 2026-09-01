@@ -84,6 +84,21 @@ final class ChatGPTClientTests: XCTestCase {
         ).contains("did not expose confirmation"))
     }
 
+    func testFlatCloudMessagesConfirmOnlyFinishedFreshReplies() throws {
+        func payload(status: String, endTurn: Bool, role: String = "assistant") -> [String: Any] {
+            ["messages": [["author": ["role": role], "create_time": 40,
+                "status": status, "end_turn": endTurn, "content": ["parts": ["1"]],
+                "metadata": ["model_slug": "gpt-5.6-luna-wm", "thinking_effort": "min"]]]]
+        }
+        let completed = payload(status: "finished_successfully", endTurn: true)
+        XCTAssertEqual(ChatGPTClient.parseConversationSnapshot(completed, requireCompletedReply: true),
+            ChatGPTConversationSnapshot(replyText: "1", metadata: ChatGPTResponseMetadata(model: "gpt-5.6-luna-wm", reasoningEffort: "min")))
+        XCTAssertNil(ChatGPTClient.parseConversationSnapshot(completed, createdAfter: Date(timeIntervalSince1970: 41), requireCompletedReply: true))
+        XCTAssertNil(ChatGPTClient.parseConversationSnapshot(payload(status: "in_progress", endTurn: true), requireCompletedReply: true))
+        XCTAssertNil(ChatGPTClient.parseConversationSnapshot(payload(status: "finished_successfully", endTurn: false), requireCompletedReply: true))
+        XCTAssertNil(ChatGPTClient.parseConversationSnapshot(payload(status: "finished_successfully", endTurn: true, role: "tool"), requireCompletedReply: true))
+    }
+
     func testModelCatalogParsesRealChatModelsAndEfforts() throws {
         let payload: [String: Any] = ["models": [
             ["slug": "gpt-5-3-mini", "title": "GPT-5.3 Mini", "reasoning_type": "none", "thinking_efforts": []],

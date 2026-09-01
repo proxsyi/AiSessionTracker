@@ -19,9 +19,9 @@ final class SharedDesignContractTests: XCTestCase {
             XCTAssertTrue(source.contains("TrackerSettingsToggleRow("), relativePath)
             XCTAssertTrue(source.contains("TrackerSettingsFieldLabel("), relativePath)
             XCTAssertTrue(source.contains("TrackerSettingsFooter("), relativePath)
-            XCTAssertTrue(source.contains("TrackerSettingsThresholdPicker("), relativePath)
+            XCTAssertTrue(source.contains("TrackerUsageAlertSetting("), relativePath)
             XCTAssertTrue(source.contains("TrackerPingAlertSettings("), relativePath)
-            XCTAssertTrue(source.contains("Schedule pings"), relativePath)
+            XCTAssertTrue(source.contains("TrackerPingSettings("), relativePath)
             XCTAssertTrue(source.contains("discardChanges = true; appState.closeSettingsWindow?()"), relativePath)
             XCTAssertFalse(source.contains("private enum SettingsTab"), relativePath)
             XCTAssertFalse(source.contains("indicatorWidth"), relativePath)
@@ -99,7 +99,7 @@ final class SharedDesignContractTests: XCTestCase {
         }
         XCTAssertTrue(settings.contains("Open pinger chat"))
         XCTAssertTrue(settings.contains("Start fresh chat"))
-        XCTAssertTrue(settings.contains("Wake Mac for scheduled pings"))
+        XCTAssertTrue(settings.contains("TrackerWakeSettings("))
         XCTAssertTrue(wake.contains("codexWakeSupportScheduledWakeEpochs"))
         XCTAssertFalse(wake.contains("wakeSupportScheduledWakeEpochs\""))
     }
@@ -121,10 +121,10 @@ final class SharedDesignContractTests: XCTestCase {
         XCTAssertTrue(helper.contains("com.proxsyi.sessiontracker\""))
         XCTAssertTrue(claudeWake.contains("[\"schedule\", \"claude\""))
         XCTAssertTrue(claudeWake.contains("[\"cancel\", \"claude\""))
-        XCTAssertTrue(claudeWake.contains("[\"purge\", \"claude\""))
+        XCTAssertTrue(claudeWake.contains("TrackerWakeSchedule.synchronize(provider: \"claude\""))
         XCTAssertTrue(codexWake.contains("[\"schedule\", \"codex\""))
         XCTAssertTrue(codexWake.contains("[\"cancel\", \"codex\""))
-        XCTAssertTrue(codexWake.contains("[\"purge\", \"codex\""))
+        XCTAssertTrue(codexWake.contains("TrackerWakeSchedule.synchronize(provider: \"codex\""))
     }
 
     func testCombinedSettingsKeepProviderNavigationMountedAndCentralizeWakeSetup() throws {
@@ -140,10 +140,14 @@ final class SharedDesignContractTests: XCTestCase {
 
         XCTAssertTrue(combined.contains("case system = \"System\""))
         XCTAssertTrue(combined.contains("settingsLayer(isActive:"))
+        XCTAssertTrue(combined.contains("@State private var selectedSettingsTab: TrackerSettingsTab = .general"))
+        XCTAssertEqual(combined.components(separatedBy: "selectedTab: $selectedSettingsTab").count - 1, 3)
         XCTAssertTrue(combined.contains("Ready for Claude and Codex"))
         XCTAssertTrue(combined.contains("Install wake support"))
         XCTAssertTrue(claudeSettings.contains("Set up in System"))
         XCTAssertTrue(gptSettings.contains("Set up in System"))
+        XCTAssertTrue(claudeSettings.contains("sharedSelectedTab ?? $localSelectedTab"))
+        XCTAssertTrue(gptSettings.contains("sharedSelectedTab ?? $localSelectedTab"))
         XCTAssertFalse(claudeSettings.contains("settingsCard { usageBehaviorSection }"))
         XCTAssertFalse(gptSettings.contains("settingsCard { usageExplanationSection }"))
     }

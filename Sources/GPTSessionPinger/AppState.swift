@@ -132,6 +132,8 @@ final class AppState: ObservableObject {
     func sendChatGPTPing(model: String? = nil, effort: String? = nil, message: String? = nil) async -> ChatGPTPingOutcome? {
         guard !isPinging else { return nil }
         isPinging = true
+        let wakeActivity = TrackerWakeActivity.shared.begin()
+        defer { TrackerWakeActivity.shared.end(wakeActivity) }
         pingStatus = nil
         defer { isPinging = false }
         let requestedModel = model ?? settings.pingModel

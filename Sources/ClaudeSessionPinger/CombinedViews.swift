@@ -248,6 +248,7 @@ struct CombinedSettingsView: View {
     @ObservedObject var gptFeature: GPTFeatureState
     @State private var showingMenuBarSettings = false
     @State private var selectedSection: CombinedSettingsSection = .claude
+    @State private var selectedSettingsTab: TrackerSettingsTab = .general
     @State private var initializedSelection = false
     @State private var launchAtLogin = false
 
@@ -266,7 +267,8 @@ struct CombinedSettingsView: View {
                     serviceVisibility: $selection.claudeVisible,
                     serviceDisplayName: "Claude",
                     isActive: selectedSection == .claude,
-                    onOpenSystemSettings: { selectedSection = .system }
+                    onOpenSystemSettings: { selectedSection = .system },
+                    selectedTab: $selectedSettingsTab
                 )
                 .settingsLayer(isActive: selectedSection == .claude)
 
@@ -276,7 +278,8 @@ struct CombinedSettingsView: View {
                     topLeadingInset: 0,
                     serviceVisibility: $selection.codexVisible,
                     isActive: selectedSection == .codex,
-                    onOpenSystemSettings: { selectedSection = .system }
+                    onOpenSystemSettings: { selectedSection = .system },
+                    selectedTab: $selectedSettingsTab
                 )
                 .settingsLayer(isActive: selectedSection == .codex)
 
@@ -285,7 +288,8 @@ struct CombinedSettingsView: View {
                     tab: .chatGPT,
                     topLeadingInset: 0,
                     serviceVisibility: $selection.chatGPTVisible,
-                    isActive: selectedSection == .chatGPT
+                    isActive: selectedSection == .chatGPT,
+                    selectedTab: $selectedSettingsTab
                 )
                 .settingsLayer(isActive: selectedSection == .chatGPT)
             }

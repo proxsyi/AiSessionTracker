@@ -128,7 +128,7 @@ final class CodexSessionPinger: ObservableObject {
         static let workComposerMigrationVersion = "codexSessionPingerWorkComposerMigrationVersion"
     }
 
-    private static let defaults: UserDefaults = {
+    private static let defaultDefaults: UserDefaults = {
         if Bundle.main.bundleIdentifier == "com.proxsyi.sessiontracker" { return .standard }
         return UserDefaults(suiteName: "com.proxsyi.sessiontracker") ?? .standard
     }()
@@ -174,11 +174,16 @@ final class CodexSessionPinger: ObservableObject {
     private var wakeSyncGeneration = 0
     private let wakeScheduleCoordinator = CodexWakeScheduleCoordinator()
     private var automaticWakeTask: Task<Void, Never>?
+    private var pendingAutomaticWakePing: Date?
+    private var pendingAutomaticWakeIsTest = false
 
-    init(settings: SettingsStore, hostAllowsPinging: Bool = false) {
+    private let defaults: UserDefaults
+
+    init(settings: SettingsStore, hostAllowsPinging: Bool = false, defaultsOverride: UserDefaults? = nil) {
+        self.defaults = defaultsOverride ?? Self.defaultDefaults
         self.settings = settings
         self.hostAllowsPinging = hostAllowsPinging
-        let defaults = Self.defaults
+        let defaults = self.defaults
         let workComposerMigrationVersion = defaults.integer(forKey: Keys.workComposerMigrationVersion)
         let requiresWorkComposerMigration = workComposerMigrationVersion < 1
         let requiresLowestWorkSelectionMigration = workComposerMigrationVersion < 2
@@ -246,7 +251,7 @@ final class CodexSessionPinger: ObservableObject {
             scheduler.onFire = { [weak self] in
                 Task { @MainActor in
                     guard let self, self.enabled else { return }
-                    _ = await self.sendPing(manual: false)
+                    await self.runScheduledPing()
                 }
             }
             NSWorkspace.shared.notificationCenter.addObserver(
@@ -291,14 +296,14 @@ final class CodexSessionPinger: ObservableObject {
 
     func startFreshChat() {
         guard !isPinging else { return }
-        Self.defaults.removeObject(forKey: Keys.firstPingPending)
+        defaults.removeObject(forKey: Keys.firstPingPending)
         conversationID = ""
         parentMessageID = ""
         status = "The next Codex ping will use a new dedicated chat."
     }
 
     var needsChatRecovery: Bool {
-        conversationID.isEmpty && Self.defaults.bool(forKey: Keys.firstPingPending)
+        conversationID.isEmpty && defaults.bool(forKey: Keys.firstPingPending)
     }
 
     func nextPossibleSessionDate(now: Date = Date(), resetDate: Date? = nil) -> Date {
@@ -383,6 +388,8 @@ final class CodexSessionPinger: ObservableObject {
             return false
         }
         isPinging = true
+        let wakeActivity = TrackerWakeActivity.shared.begin()
+        defer { TrackerWakeActivity.shared.end(wakeActivity) }
         status = nil
         defer { isPinging = false }
         let maxAttempts = 3
@@ -397,7 +404,7 @@ final class CodexSessionPinger: ObservableObject {
                 if conversationID.isEmpty {
                     // Persist before sending: a crash or uncertain first delivery
                     // must not silently create another chat on the next launch.
-                    Self.defaults.set(true, forKey: Keys.firstPingPending)
+                    defaults.set(true, forKey: Keys.firstPingPending)
                 }
                 let outcome = try await ChatGPTClient.sendPing(
                     auth: auth,
@@ -412,7 +419,7 @@ final class CodexSessionPinger: ObservableObject {
                     onConversationIdentified: { [weak self] id in
                         guard let self else { return }
                         self.conversationID = id
-                        Self.defaults.removeObject(forKey: Keys.firstPingPending)
+                        self.defaults.removeObject(forKey: Keys.firstPingPending)
                     }
                 )
                 conversationID = try ChatGPTConversationIdentity.validate(expected: conversationID, observed: outcome.conversationID)
@@ -428,7 +435,7 @@ final class CodexSessionPinger: ObservableObject {
                 )
                 status = (manual ? "Codex ping sent in its dedicated chat. " : "Scheduled Codex ping sent in its dedicated chat. ") + confirmation
                 addRecord(success: true, summary: "Got reply", model: outcome.confirmedModel)
-                Self.defaults.set(lastSuccess, forKey: Keys.lastSuccess)
+                defaults.set(lastSuccess, forKey: Keys.lastSuccess)
                 save()
                 if let alert = TrackerPingAlertPolicy.success(manual: manual, pingSent: notifySessionStarted, scheduledPingSent: notifyOnSuccess) {
                     notify(
@@ -553,8 +560,20 @@ final class CodexSessionPinger: ObservableObject {
         reschedule()
     }
 
+    private func runScheduledPing() async {
+        guard enabled else { return }
+        guard pendingAutomaticWakePing == nil else { return }
+        if enableScheduledWake, let date = CodexWakeSupport.matchingScheduledPingAfterWake() {
+            queueAutomaticWakePing(at: date, isTest: false)
+            return
+        }
+        _ = await sendPing(manual: false)
+    }
+
     private func queueAutomaticWakePing(at date: Date, isTest: Bool) {
         automaticWakeTask?.cancel()
+        pendingAutomaticWakePing = date
+        pendingAutomaticWakeIsTest = isTest
         do {
             try CodexWakeSupport.beginWakeHold()
             wakeSupportStatus = isTest
@@ -567,7 +586,11 @@ final class CodexSessionPinger: ObservableObject {
             let delay = max(0, date.timeIntervalSinceNow)
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
             guard !Task.isCancelled, let self, isTest || (self.enabled && self.enableScheduledWake) else { return }
-            let succeeded = await self.sendPing(manual: false)
+            guard self.pendingAutomaticWakePing == date else { return }
+            self.pendingAutomaticWakePing = nil
+            defer { self.pendingAutomaticWakeIsTest = false }
+            let succeeded = await self.sendPing(manual: isTest)
+            guard !Task.isCancelled else { return }
             await self.returnToSleepAfterWake(testResult: isTest ? succeeded : nil)
         }
     }
@@ -576,7 +599,8 @@ final class CodexSessionPinger: ObservableObject {
         wakeSupportStatus = "Codex ping finished. Waiting 30 seconds before returning to sleep."
         let observationStarted = Date()
         try? await Task.sleep(nanoseconds: UInt64(CodexWakeSupport.resleepDelay * 1_000_000_000))
-        guard enableScheduledWake else { return }
+        guard !Task.isCancelled, enableScheduledWake || testResult != nil else { return }
+        guard await TrackerWakeActivity.shared.waitUntilIdle() else { return }
         guard !CodexWakeSupport.userWasActive(since: observationStarted) else {
             wakeSupportStatus = "Stayed awake because the Mac is being used."
             if testResult != nil {
@@ -604,6 +628,11 @@ final class CodexSessionPinger: ObservableObject {
             }.value
         } catch {
             wakeSupportStatus = error.localizedDescription
+            if testResult != nil {
+                CodexWakeSupport.saveTestResult(outcome: .failed,
+                    message: "Closed-lid test failed while returning to sleep: \(error.localizedDescription)")
+                wakeTestResult = CodexWakeSupport.lastTestResult
+            }
         }
     }
 
@@ -612,6 +641,11 @@ final class CodexSessionPinger: ObservableObject {
         wakeSyncGeneration += 1
         let generation = wakeSyncGeneration
         let wakeEnabled = enabled && enableScheduledWake
+        if !wakeEnabled && !pendingAutomaticWakeIsTest {
+            automaticWakeTask?.cancel()
+            automaticWakeTask = nil
+            pendingAutomaticWakePing = nil
+        }
         let wakeSlots = slots
         wakeHelperInstalled = CodexWakeSupport.isInstalled
         if wakeEnabled && !wakeHelperInstalled {
@@ -644,7 +678,7 @@ final class CodexSessionPinger: ObservableObject {
     private func addRecord(success: Bool, summary: String, model: String?) {
         records.append(PingRecord(id: UUID(), date: Date(), success: success, summary: summary, model: model, conversationID: conversationID.isEmpty ? nil : conversationID))
         if records.count > 50 { records.removeFirst(records.count - 50) }
-        if let data = try? JSONEncoder().encode(records) { Self.defaults.set(data, forKey: Keys.history) }
+        if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: Keys.history) }
     }
 
     nonisolated static func modelConfirmationText(
@@ -679,7 +713,7 @@ final class CodexSessionPinger: ObservableObject {
     }
 
     private func save() {
-        let defaults = Self.defaults
+        let defaults = self.defaults
         defaults.set(enabled, forKey: Keys.enabled)
         defaults.set(model, forKey: Keys.model)
         defaults.set(reasoningEffort, forKey: Keys.reasoningEffort)

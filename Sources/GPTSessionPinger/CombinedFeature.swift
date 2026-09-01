@@ -1,5 +1,6 @@
 import Combine
 import SwiftUI
+import TrackerDesignSystem
 
 public enum GPTCombinedTab: String, CaseIterable, Identifiable, Sendable {
     case codex = "Codex"
@@ -239,6 +240,7 @@ public struct GPTCombinedSettingsContent: View {
     private let serviceVisibility: Binding<Bool>?
     private let isActive: Bool
     private let onOpenSystemSettings: (() -> Void)?
+    private let selectedTab: Binding<TrackerSettingsTab>?
 
     public init(
         feature: GPTFeatureState,
@@ -246,7 +248,8 @@ public struct GPTCombinedSettingsContent: View {
         topLeadingInset: CGFloat,
         serviceVisibility: Binding<Bool>? = nil,
         isActive: Bool = true,
-        onOpenSystemSettings: (() -> Void)? = nil
+        onOpenSystemSettings: (() -> Void)? = nil,
+        selectedTab: Binding<TrackerSettingsTab>? = nil
     ) {
         self.feature = feature
         self.tab = tab
@@ -254,6 +257,7 @@ public struct GPTCombinedSettingsContent: View {
         self.serviceVisibility = serviceVisibility
         self.isActive = isActive
         self.onOpenSystemSettings = onOpenSystemSettings
+        self.selectedTab = selectedTab
     }
 
     public var body: some View {
@@ -265,7 +269,8 @@ public struct GPTCombinedSettingsContent: View {
             settingsScope: tab == .codex ? .codex : .chatGPT,
             serviceVisibility: serviceVisibility,
             isActive: isActive,
-            onOpenSystemSettings: onOpenSystemSettings
+            onOpenSystemSettings: onOpenSystemSettings,
+            selectedTab: selectedTab
         )
             .environmentObject(feature.settings)
             .environmentObject(feature.history)

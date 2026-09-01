@@ -1,3 +1,4 @@
+import TrackerDesignSystem
 import Foundation
 import CoreGraphics
 import IOKit
@@ -134,34 +135,16 @@ enum WakeSupport {
 
     static func syncSchedule(enabled: Bool, slots: [ScheduleSlot], now: Date = Date()) throws -> WakeScheduleSummary {
         let defaults = UserDefaults.standard
-        if isInstalled {
-            try runHelper(["purge", "claude"])
-            try runHelper(["purge", "legacy"])
-        }
         defaults.removeObject(forKey: scheduledWakeEpochsKey)
         defaults.removeObject(forKey: scheduledPingEpochsKey)
-
-        guard enabled else { return WakeScheduleSummary(eventCount: 0, nextWake: nil) }
-        guard isInstalled else { throw WakeSupportError.helperNotInstalled }
-
-        let pingDates = futurePingDates(slots: slots, now: now)
-        let pairs = pingDates.compactMap { ping -> (wake: Date, ping: Date)? in
-            let wake = ping.addingTimeInterval(-wakeLeadTime)
-            return wake > now.addingTimeInterval(10) ? (wake, ping) : nil
+        guard isInstalled else {
+            if enabled { throw WakeSupportError.helperNotInstalled }
+            return WakeScheduleSummary(eventCount: 0, nextWake: nil)
         }
-        var scheduled: [Date] = []
-        do {
-            for pair in pairs {
-                try runHelper(["schedule", "claude", timestampArgument(pair.wake.timeIntervalSince1970)])
-                scheduled.append(pair.wake)
-            }
-        } catch {
-            for date in scheduled {
-                _ = try? runHelper(["cancel", "claude", timestampArgument(date.timeIntervalSince1970)])
-            }
-            throw error
-        }
-
+        let pairs = try TrackerWakeSchedule.synchronize(provider: "claude", enabled: enabled,
+            slots: slots.map { .init(hour: $0.hour, minute: $0.minute) },
+            testEpoch: defaults.double(forKey: testWakeEpochKey), now: now,
+            run: { _ = try runHelper($0) })
         defaults.set(pairs.map { $0.wake.timeIntervalSince1970 }, forKey: scheduledWakeEpochsKey)
         defaults.set(pairs.map { $0.ping.timeIntervalSince1970 }, forKey: scheduledPingEpochsKey)
         return WakeScheduleSummary(eventCount: pairs.count, nextWake: pairs.first?.wake)
@@ -294,20 +277,6 @@ enum WakeSupport {
         }
     }
 
-    private static func futurePingDates(slots: [ScheduleSlot], now: Date) -> [Date] {
-        let calendar = Calendar.autoupdatingCurrent
-        var dates: [Date] = []
-        for dayOffset in 0...7 {
-            guard let dayStart = calendar.date(byAdding: .day, value: dayOffset, to: calendar.startOfDay(for: now)) else { continue }
-            for slot in slots {
-                if let date = calendar.date(bySettingHour: slot.hour, minute: slot.minute, second: 0, of: dayStart),
-                   date > now.addingTimeInterval(wakeLeadTime + 10) {
-                    dates.append(date)
-                }
-            }
-        }
-        return dates.sorted()
-    }
 
     @discardableResult
     private static func runHelper(_ arguments: [String]) throws -> String {

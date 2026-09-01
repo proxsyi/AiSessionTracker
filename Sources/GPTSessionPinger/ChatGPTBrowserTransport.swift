@@ -32,7 +32,7 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
 
     func resolveAuth(cookieHeader: String) async throws -> ChatGPTAuthSession {
         try await operationGate.acquire()
-        defer { operationGate.release() }
+        defer { finishBrowserOperation() }
         let webView = try await preparedWebView(cookieHeader: cookieHeader)
         let script = """
         const response = await fetch('/api/auth/session', {
@@ -87,7 +87,7 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         timeout: TimeInterval
     ) async throws -> ChatGPTBrowserResponse {
         try await operationGate.acquire()
-        defer { operationGate.release() }
+        defer { finishBrowserOperation() }
         let webView = try await preparedWebView(cookieHeader: cookieHeader)
         try await loadChatGPT(
             in: webView,
@@ -117,6 +117,7 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         } else {
             let configuration = WKWebViewConfiguration()
             configuration.websiteDataStore = .default()
+            if #available(macOS 14.0, *) { configuration.preferences.inactiveSchedulingPolicy = .none }
             webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
             webView.navigationDelegate = self
             self.webView = webView
@@ -137,6 +138,7 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             browserPanel = panel
         }
 
+        if #available(macOS 14.0, *) { webView.configuration.preferences.inactiveSchedulingPolicy = .none }
         await installCookies(
             cookieHeader,
             into: webView.configuration.websiteDataStore.httpCookieStore,
@@ -146,6 +148,13 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
 
         try await loadChatGPT(in: webView)
         return webView
+    }
+
+    private func finishBrowserOperation() {
+        // Work uses an asynchronous stream handoff. Keep the renderer running
+        // during the operation, then suspend idle page work to save battery.
+        if #available(macOS 14.0, *) { webView?.configuration.preferences.inactiveSchedulingPolicy = .suspend }
+        operationGate.release()
     }
 
     private func loadChatGPT(in webView: WKWebView) async throws {

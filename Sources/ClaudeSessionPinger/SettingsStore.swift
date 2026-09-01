@@ -18,7 +18,7 @@ final class SettingsStore: ObservableObject {
 
     /// Reuse the standalone Claude app's preference domain when this feature
     /// runs inside the combined tracker, without colliding with GPT settings.
-    private static let serviceDefaults: UserDefaults = {
+    private static let defaultServiceDefaults: UserDefaults = {
         guard let suiteName = defaultsSuiteName(for: Bundle.main.bundleIdentifier) else {
             return .standard
         }
@@ -74,101 +74,101 @@ final class SettingsStore: ObservableObject {
     private static let legacyBundleIdentifier = "com.cash.claudesessionpinger"
 
     @Published var organizationID: String {
-        didSet { Self.serviceDefaults.set(organizationID, forKey: Keys.organizationID) }
+        didSet { serviceDefaults.set(organizationID, forKey: Keys.organizationID) }
     }
     @Published var model: String {
-        didSet { Self.serviceDefaults.set(model, forKey: Keys.model) }
+        didSet { serviceDefaults.set(model, forKey: Keys.model) }
     }
     @Published var message: String {
-        didSet { Self.serviceDefaults.set(message, forKey: Keys.message) }
+        didSet { serviceDefaults.set(message, forKey: Keys.message) }
     }
     @Published var conversationID: String {
-        didSet { Self.serviceDefaults.set(conversationID, forKey: Keys.conversationID) }
+        didSet { serviceDefaults.set(conversationID, forKey: Keys.conversationID) }
     }
     @Published var showSessionBar: Bool {
-        didSet { Self.serviceDefaults.set(showSessionBar, forKey: Keys.showSessionBar) }
+        didSet { serviceDefaults.set(showSessionBar, forKey: Keys.showSessionBar) }
     }
     @Published var showWeeklyBar: Bool {
-        didSet { Self.serviceDefaults.set(showWeeklyBar, forKey: Keys.showWeeklyBar) }
+        didSet { serviceDefaults.set(showWeeklyBar, forKey: Keys.showWeeklyBar) }
     }
     @Published var showHistoryChart: Bool {
-        didSet { Self.serviceDefaults.set(showHistoryChart, forKey: Keys.showHistoryChart) }
+        didSet { serviceDefaults.set(showHistoryChart, forKey: Keys.showHistoryChart) }
     }
     @Published var notifySessionAvailable: Bool {
-        didSet { Self.serviceDefaults.set(notifySessionAvailable, forKey: Keys.notifySessionAvailable) }
+        didSet { serviceDefaults.set(notifySessionAvailable, forKey: Keys.notifySessionAvailable) }
     }
     @Published var notifySessionStarted: Bool {
-        didSet { Self.serviceDefaults.set(notifySessionStarted, forKey: Keys.notifySessionStarted) }
+        didSet { serviceDefaults.set(notifySessionStarted, forKey: Keys.notifySessionStarted) }
     }
     @Published var autoStartAvailableSessions: Bool {
-        didSet { Self.serviceDefaults.set(autoStartAvailableSessions, forKey: Keys.autoStartAvailableSessions) }
+        didSet { serviceDefaults.set(autoStartAvailableSessions, forKey: Keys.autoStartAvailableSessions) }
     }
     @Published var enableCommandUShortcut: Bool {
         didSet {
-            Self.serviceDefaults.set(enableCommandUShortcut, forKey: Keys.enableCommandUShortcut)
+            serviceDefaults.set(enableCommandUShortcut, forKey: Keys.enableCommandUShortcut)
             NotificationCenter.default.post(name: .commandUShortcutSettingChanged, object: nil)
         }
     }
     @Published var preferClearGlass: Bool {
-        didSet { Self.serviceDefaults.set(preferClearGlass, forKey: Keys.preferClearGlass) }
+        didSet { serviceDefaults.set(preferClearGlass, forKey: Keys.preferClearGlass) }
     }
     @Published var showNextPossibleCountdown: Bool {
-        didSet { Self.serviceDefaults.set(showNextPossibleCountdown, forKey: Keys.showNextPossibleCountdown) }
+        didSet { serviceDefaults.set(showNextPossibleCountdown, forKey: Keys.showNextPossibleCountdown) }
     }
     @Published var showScheduledCountdown: Bool {
-        didSet { Self.serviceDefaults.set(showScheduledCountdown, forKey: Keys.showScheduledCountdown) }
+        didSet { serviceDefaults.set(showScheduledCountdown, forKey: Keys.showScheduledCountdown) }
     }
     @Published var countdownFocus: CountdownFocus {
-        didSet { Self.serviceDefaults.set(countdownFocus.rawValue, forKey: Keys.countdownFocus) }
+        didSet { serviceDefaults.set(countdownFocus.rawValue, forKey: Keys.countdownFocus) }
     }
     @Published var enableScheduledWake: Bool {
-        didSet { Self.serviceDefaults.set(enableScheduledWake, forKey: Keys.enableScheduledWake) }
+        didSet { serviceDefaults.set(enableScheduledWake, forKey: Keys.enableScheduledWake) }
     }
     @Published var scheduleSlots: [ScheduleSlot] {
         didSet {
             if let data = try? JSONEncoder().encode(scheduleSlots) {
-                Self.serviceDefaults.set(data, forKey: Keys.scheduleSlots)
+                serviceDefaults.set(data, forKey: Keys.scheduleSlots)
             }
         }
     }
     @Published var launchAtLogin: Bool {
-        didSet { Self.serviceDefaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
+        didSet { serviceDefaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
     }
     @Published var notifyOnFailure: Bool {
-        didSet { Self.serviceDefaults.set(notifyOnFailure, forKey: Keys.notifyOnFailure) }
+        didSet { serviceDefaults.set(notifyOnFailure, forKey: Keys.notifyOnFailure) }
     }
     @Published var notifyOnSuccess: Bool {
-        didSet { Self.serviceDefaults.set(notifyOnSuccess, forKey: Keys.notifyOnSuccess) }
+        didSet { serviceDefaults.set(notifyOnSuccess, forKey: Keys.notifyOnSuccess) }
     }
     @Published var scheduledPingsEnabled: Bool {
-        didSet { Self.serviceDefaults.set(scheduledPingsEnabled, forKey: Keys.scheduledPingsEnabled) }
+        didSet { serviceDefaults.set(scheduledPingsEnabled, forKey: Keys.scheduledPingsEnabled) }
     }
     @Published var notifyOnServiceOutage: Bool {
-        didSet { Self.serviceDefaults.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
+        didSet { serviceDefaults.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
     }
     /// Notify when Claude's status page reports degraded performance (minor
     /// issues), separately from full outages.
     @Published var notifyOnServiceDegraded: Bool {
-        didSet { Self.serviceDefaults.set(notifyOnServiceDegraded, forKey: Keys.notifyOnServiceDegraded) }
+        didSet { serviceDefaults.set(notifyOnServiceDegraded, forKey: Keys.notifyOnServiceDegraded) }
     }
     @Published var sessionUsageThresholds: [Int] {
         didSet {
             if let data = try? JSONEncoder().encode(sessionUsageThresholds) {
-                Self.serviceDefaults.set(data, forKey: Keys.sessionUsageThresholds)
+                serviceDefaults.set(data, forKey: Keys.sessionUsageThresholds)
             }
         }
     }
     @Published var weeklyUsageThresholds: [Int] {
         didSet {
             if let data = try? JSONEncoder().encode(weeklyUsageThresholds) {
-                Self.serviceDefaults.set(data, forKey: Keys.weeklyUsageThresholds)
+                serviceDefaults.set(data, forKey: Keys.weeklyUsageThresholds)
             }
         }
     }
     /// When true, new releases are downloaded and installed automatically as
     /// soon as the daily check finds one.
     @Published var autoUpdateEnabled: Bool {
-        didSet { Self.serviceDefaults.set(autoUpdateEnabled, forKey: Keys.autoUpdateEnabled) }
+        didSet { serviceDefaults.set(autoUpdateEnabled, forKey: Keys.autoUpdateEnabled) }
     }
     @Published var sessionKey: String {
         didSet { persistWebSession() }
@@ -180,10 +180,15 @@ final class SettingsStore: ObservableObject {
     }
     @Published private(set) var credentialPersistenceError: String?
 
-    init() {
+    private let serviceDefaults: UserDefaults
+    private let usesKeychain: Bool
+
+    init(defaultsOverride: UserDefaults? = nil, usesKeychain: Bool = true) {
+        self.serviceDefaults = defaultsOverride ?? Self.defaultServiceDefaults
+        self.usesKeychain = usesKeychain
         credentialPersistenceError = nil
-        let defaults = Self.serviceDefaults
-        Self.migrateLegacyDefaultsIfNeeded(into: defaults)
+        let defaults = serviceDefaults
+        if defaultsOverride == nil { Self.migrateLegacyDefaultsIfNeeded(into: defaults) }
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
         let storedModel = defaults.string(forKey: Keys.model) ?? ""
         model = storedModel.isEmpty ? "claude-haiku-4-5-20251001" : storedModel
@@ -219,7 +224,7 @@ final class SettingsStore: ObservableObject {
         } else {
             weeklyUsageThresholds = SettingsStore.defaultWeeklyThresholds
         }
-        let storedWebSession = KeychainStore.load()
+        let storedWebSession = usesKeychain ? KeychainStore.load() : nil
         sessionKey = storedWebSession?.sessionKey ?? ""
         cookieHeader = storedWebSession?.cookieHeader ?? ""
         defaults.removeObject(forKey: "keychainOwnershipMigrationVersion")
@@ -234,6 +239,7 @@ final class SettingsStore: ObservableObject {
     }
 
     private func persistWebSession() {
+        guard usesKeychain else { return }
         do {
             try KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
             credentialPersistenceError = nil

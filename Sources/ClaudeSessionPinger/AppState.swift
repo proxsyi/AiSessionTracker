@@ -198,7 +198,7 @@ final class AppState: ObservableObject {
             automaticWakePingTask.task = nil
             WakeSupport.appendDiagnostic("automatic ping started")
 
-            let completedPing = await runPing(manual: false)
+            let completedPing = await runPing(manual: isWakeTest)
             if completedPing {
                 WakeSupport.appendDiagnostic("automatic ping finished; status=\(String(describing: status))")
                 scheduleReturnToSleep(wakeTestPingSucceeded: isWakeTest ? status == .success : nil)
@@ -264,7 +264,7 @@ final class AppState: ObservableObject {
         let generation = wakeSyncGeneration
         let enabled = settings.enableScheduledWake && settings.scheduledPingsEnabled
         let slots = settings.scheduleSlots
-        if !enabled {
+        if !enabled && !pendingAutomaticWakeIsTest {
             automaticWakePingTask.task?.cancel()
             automaticWakePingTask.task = nil
             pendingAutomaticWakePing = nil
@@ -317,7 +317,8 @@ final class AppState: ObservableObject {
         let activityObservationStartedAt = Date()
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(WakeSupport.resleepDelay * 1_000_000_000))
-            guard let self, self.settings.enableScheduledWake else { return }
+            guard !Task.isCancelled, let self, self.settings.enableScheduledWake || wakeTestPingSucceeded != nil else { return }
+            guard await TrackerWakeActivity.shared.waitUntilIdle() else { return }
             let idleSeconds = WakeSupport.userIdleSeconds
             let activityObserved = WakeSupport.userWasActive(since: activityObservationStartedAt)
             WakeSupport.appendDiagnostic(
@@ -396,6 +397,8 @@ final class AppState: ObservableObject {
         }
 
         isPinging = true
+        let wakeActivity = TrackerWakeActivity.shared.begin()
+        defer { TrackerWakeActivity.shared.end(wakeActivity) }
         status = .sending
         lastError = nil
 

@@ -10,7 +10,7 @@ final class SettingsStore: ObservableObject {
 
     /// Reuse the standalone GPT app's preference domain when this feature
     /// runs inside the combined tracker, without colliding with Claude settings.
-    private static let serviceDefaults: UserDefaults = {
+    private static let defaultServiceDefaults: UserDefaults = {
         guard let suiteName = defaultsSuiteName(for: Bundle.main.bundleIdentifier) else {
             return .standard
         }
@@ -52,60 +52,60 @@ final class SettingsStore: ObservableObject {
     private static let currentTrackerMigrationVersion = 3
 
     @Published var organizationID: String {
-        didSet { Self.serviceDefaults.set(organizationID, forKey: Keys.organizationID) }
+        didSet { serviceDefaults.set(organizationID, forKey: Keys.organizationID) }
     }
     @Published var accountPlanType: String {
-        didSet { Self.serviceDefaults.set(accountPlanType, forKey: Keys.accountPlanType) }
+        didSet { serviceDefaults.set(accountPlanType, forKey: Keys.accountPlanType) }
     }
-    @Published var pingModel: String { didSet { Self.serviceDefaults.set(pingModel, forKey: Keys.pingModel) } }
-    @Published var pingReasoningEffort: String { didSet { Self.serviceDefaults.set(pingReasoningEffort, forKey: Keys.pingReasoningEffort) } }
-    @Published var pingMessage: String { didSet { Self.serviceDefaults.set(pingMessage, forKey: Keys.pingMessage) } }
-    @Published var pingConversationID: String { didSet { Self.serviceDefaults.set(pingConversationID, forKey: Keys.pingConversationID) } }
-    @Published var pingParentMessageID: String { didSet { Self.serviceDefaults.set(pingParentMessageID, forKey: Keys.pingParentMessageID) } }
+    @Published var pingModel: String { didSet { serviceDefaults.set(pingModel, forKey: Keys.pingModel) } }
+    @Published var pingReasoningEffort: String { didSet { serviceDefaults.set(pingReasoningEffort, forKey: Keys.pingReasoningEffort) } }
+    @Published var pingMessage: String { didSet { serviceDefaults.set(pingMessage, forKey: Keys.pingMessage) } }
+    @Published var pingConversationID: String { didSet { serviceDefaults.set(pingConversationID, forKey: Keys.pingConversationID) } }
+    @Published var pingParentMessageID: String { didSet { serviceDefaults.set(pingParentMessageID, forKey: Keys.pingParentMessageID) } }
     @Published var showCategoryTabs: Bool {
-        didSet { Self.serviceDefaults.set(showCategoryTabs, forKey: Keys.showCategoryTabs) }
+        didSet { serviceDefaults.set(showCategoryTabs, forKey: Keys.showCategoryTabs) }
     }
     @Published var showHistoryChart: Bool {
-        didSet { Self.serviceDefaults.set(showHistoryChart, forKey: Keys.showHistoryChart) }
+        didSet { serviceDefaults.set(showHistoryChart, forKey: Keys.showHistoryChart) }
     }
     @Published var automaticallyShowNewUsageTracks: Bool {
-        didSet { Self.serviceDefaults.set(automaticallyShowNewUsageTracks, forKey: Keys.automaticallyShowNewUsageTracks) }
+        didSet { serviceDefaults.set(automaticallyShowNewUsageTracks, forKey: Keys.automaticallyShowNewUsageTracks) }
     }
     @Published private(set) var hiddenUsageTrackIDs: Set<String> {
-        didSet { Self.save(hiddenUsageTrackIDs, key: Keys.hiddenUsageTrackIDs) }
+        didSet { save(hiddenUsageTrackIDs, key: Keys.hiddenUsageTrackIDs) }
     }
     @Published private(set) var knownUsageTrackIDs: Set<String> {
-        didSet { Self.save(knownUsageTrackIDs, key: Keys.knownUsageTrackIDs) }
+        didSet { save(knownUsageTrackIDs, key: Keys.knownUsageTrackIDs) }
     }
     @Published private(set) var alertEnabledUsageTrackIDs: Set<String> {
-        didSet { Self.save(alertEnabledUsageTrackIDs, key: Keys.alertEnabledUsageTrackIDs) }
+        didSet { save(alertEnabledUsageTrackIDs, key: Keys.alertEnabledUsageTrackIDs) }
     }
     @Published var weeklyUsageThresholds: [Int] {
-        didSet { Self.saveInts(weeklyUsageThresholds, key: Keys.weeklyUsageThresholds) }
+        didSet { saveInts(weeklyUsageThresholds, key: Keys.weeklyUsageThresholds) }
     }
     @Published private(set) var usageThresholdsByTrack: [String: [Int]] {
-        didSet { Self.saveIntDictionary(usageThresholdsByTrack, key: Keys.usageThresholdsByTrack) }
+        didSet { saveIntDictionary(usageThresholdsByTrack, key: Keys.usageThresholdsByTrack) }
     }
     @Published var enableCommandIShortcut: Bool {
         didSet {
-            Self.serviceDefaults.set(enableCommandIShortcut, forKey: Keys.enableCommandIShortcut)
+            serviceDefaults.set(enableCommandIShortcut, forKey: Keys.enableCommandIShortcut)
             NotificationCenter.default.post(name: .commandIShortcutSettingChanged, object: nil)
         }
     }
     @Published var preferClearGlass: Bool {
-        didSet { Self.serviceDefaults.set(preferClearGlass, forKey: Keys.preferClearGlass) }
+        didSet { serviceDefaults.set(preferClearGlass, forKey: Keys.preferClearGlass) }
     }
     @Published var launchAtLogin: Bool {
-        didSet { Self.serviceDefaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
+        didSet { serviceDefaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
     }
     @Published var notifyOnServiceOutage: Bool {
-        didSet { Self.serviceDefaults.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
+        didSet { serviceDefaults.set(notifyOnServiceOutage, forKey: Keys.notifyOnServiceOutage) }
     }
     @Published var notifyOnServiceDegraded: Bool {
-        didSet { Self.serviceDefaults.set(notifyOnServiceDegraded, forKey: Keys.notifyOnServiceDegraded) }
+        didSet { serviceDefaults.set(notifyOnServiceDegraded, forKey: Keys.notifyOnServiceDegraded) }
     }
     @Published var autoUpdateEnabled: Bool {
-        didSet { Self.serviceDefaults.set(autoUpdateEnabled, forKey: Keys.autoUpdateEnabled) }
+        didSet { serviceDefaults.set(autoUpdateEnabled, forKey: Keys.autoUpdateEnabled) }
     }
     @Published var sessionKey: String {
         didSet { persistWebSession() }
@@ -116,11 +116,16 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var credentialPersistenceError: String?
     @Published private(set) var availablePingModels: [ChatGPTModelOption] = []
 
-    init() {
+    private let serviceDefaults: UserDefaults
+    private let usesKeychain: Bool
+
+    init(defaultsOverride: UserDefaults? = nil, usesKeychain: Bool = true) {
+        self.serviceDefaults = defaultsOverride ?? Self.defaultServiceDefaults
+        self.usesKeychain = usesKeychain
         credentialPersistenceError = nil
-        let defaults = Self.serviceDefaults
+        let defaults = serviceDefaults
         organizationID = defaults.string(forKey: Keys.organizationID) ?? ""
-        let storedWebSession = KeychainStore.load()
+        let storedWebSession = usesKeychain ? KeychainStore.load() : nil
         let storedSessionKey = storedWebSession?.sessionKey ?? ""
         sessionKey = storedSessionKey
         cookieHeader = storedWebSession?.cookieHeader ?? ""
@@ -133,15 +138,15 @@ final class SettingsStore: ObservableObject {
         showCategoryTabs = defaults.object(forKey: Keys.showCategoryTabs) == nil ? true : defaults.bool(forKey: Keys.showCategoryTabs)
         showHistoryChart = defaults.object(forKey: Keys.showHistoryChart) == nil ? true : defaults.bool(forKey: Keys.showHistoryChart)
         automaticallyShowNewUsageTracks = defaults.object(forKey: Keys.automaticallyShowNewUsageTracks) == nil ? true : defaults.bool(forKey: Keys.automaticallyShowNewUsageTracks)
-        hiddenUsageTrackIDs = Self.loadSet(key: Keys.hiddenUsageTrackIDs)
-        knownUsageTrackIDs = Self.loadSet(key: Keys.knownUsageTrackIDs)
-        let storedAlertIDs = Self.loadSet(key: Keys.alertEnabledUsageTrackIDs)
+        hiddenUsageTrackIDs = Self.loadSet(key: Keys.hiddenUsageTrackIDs, defaults: defaults)
+        knownUsageTrackIDs = Self.loadSet(key: Keys.knownUsageTrackIDs, defaults: defaults)
+        let storedAlertIDs = Self.loadSet(key: Keys.alertEnabledUsageTrackIDs, defaults: defaults)
         let effectiveAlertIDs: Set<String> = defaults.object(forKey: Keys.alertEnabledUsageTrackIDs) == nil ? ["codex-weekly"] : storedAlertIDs
         alertEnabledUsageTrackIDs = effectiveAlertIDs
-        let storedWeekly = Self.loadInts(key: Keys.weeklyUsageThresholds)
+        let storedWeekly = Self.loadInts(key: Keys.weeklyUsageThresholds, defaults: defaults)
         let effectiveWeekly = storedWeekly.isEmpty ? Self.defaultWeeklyThresholds : storedWeekly
         weeklyUsageThresholds = effectiveWeekly
-        let storedTrackThresholds = Self.loadIntDictionary(key: Keys.usageThresholdsByTrack)
+        let storedTrackThresholds = Self.loadIntDictionary(key: Keys.usageThresholdsByTrack, defaults: defaults)
         usageThresholdsByTrack = storedTrackThresholds.isEmpty
             ? Dictionary(uniqueKeysWithValues: effectiveAlertIDs.map { ($0, effectiveWeekly) })
             : storedTrackThresholds
@@ -275,6 +280,7 @@ final class SettingsStore: ObservableObject {
     }
 
     private func persistWebSession() {
+        guard usesKeychain else { return }
         do {
             try KeychainStore.save(sessionKey: sessionKey, cookieHeader: cookieHeader)
             credentialPersistenceError = nil
@@ -283,37 +289,37 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    private static func loadSet(key: String) -> Set<String> {
-        guard let data = Self.serviceDefaults.data(forKey: key),
+    private static func loadSet(key: String, defaults: UserDefaults) -> Set<String> {
+        guard let data = defaults.data(forKey: key),
               let decoded = try? JSONDecoder().decode([String].self, from: data) else { return [] }
         return Set(decoded)
     }
 
-    private static func save(_ values: Set<String>, key: String) {
+    private func save(_ values: Set<String>, key: String) {
         guard let data = try? JSONEncoder().encode(values.sorted()) else { return }
-        Self.serviceDefaults.set(data, forKey: key)
+        serviceDefaults.set(data, forKey: key)
     }
 
-    private static func loadInts(key: String) -> [Int] {
-        guard let data = Self.serviceDefaults.data(forKey: key),
+    private static func loadInts(key: String, defaults: UserDefaults) -> [Int] {
+        guard let data = defaults.data(forKey: key),
               let decoded = try? JSONDecoder().decode([Int].self, from: data) else { return [] }
         return decoded.sorted()
     }
 
-    private static func saveInts(_ values: [Int], key: String) {
+    private func saveInts(_ values: [Int], key: String) {
         guard let data = try? JSONEncoder().encode(Array(Set(values)).sorted()) else { return }
-        Self.serviceDefaults.set(data, forKey: key)
+        serviceDefaults.set(data, forKey: key)
     }
 
-    private static func loadIntDictionary(key: String) -> [String: [Int]] {
-        guard let data = Self.serviceDefaults.data(forKey: key),
+    private static func loadIntDictionary(key: String, defaults: UserDefaults) -> [String: [Int]] {
+        guard let data = defaults.data(forKey: key),
               let decoded = try? JSONDecoder().decode([String: [Int]].self, from: data) else { return [:] }
         return decoded.mapValues { Array(Set($0)).sorted() }
     }
 
-    private static func saveIntDictionary(_ values: [String: [Int]], key: String) {
+    private func saveIntDictionary(_ values: [String: [Int]], key: String) {
         let normalized = values.mapValues { Array(Set($0)).sorted() }
         guard let data = try? JSONEncoder().encode(normalized) else { return }
-        Self.serviceDefaults.set(data, forKey: key)
+        serviceDefaults.set(data, forKey: key)
     }
 }

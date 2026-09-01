@@ -1,3 +1,4 @@
+import TrackerDesignSystem
 import CoreGraphics
 import Darwin
 import Foundation
@@ -122,29 +123,16 @@ enum CodexWakeSupport {
 
     static func syncSchedule(enabled: Bool, slots: [CodexSessionPinger.ScheduleSlot], now: Date = Date()) throws -> CodexWakeScheduleSummary {
         let defaults = UserDefaults.standard
-        if isInstalled {
-            try runHelper(["purge", "codex"])
-            try runHelper(["purge", "legacy"])
-        }
         defaults.removeObject(forKey: scheduledWakeEpochsKey)
         defaults.removeObject(forKey: scheduledPingEpochsKey)
-        guard enabled else { return CodexWakeScheduleSummary(eventCount: 0, nextWake: nil) }
-        guard isInstalled else { throw CodexWakeSupportError.helperNotInstalled }
-
-        let pairs = futurePingDates(slots: slots, now: now).compactMap { ping -> (wake: Date, ping: Date)? in
-            let wake = ping.addingTimeInterval(-wakeLeadTime)
-            return wake > now.addingTimeInterval(10) ? (wake, ping) : nil
+        guard isInstalled else {
+            if enabled { throw CodexWakeSupportError.helperNotInstalled }
+            return CodexWakeScheduleSummary(eventCount: 0, nextWake: nil)
         }
-        var scheduled: [Date] = []
-        do {
-            for pair in pairs {
-                try runHelper(["schedule", "codex", timestampArgument(pair.wake.timeIntervalSince1970)])
-                scheduled.append(pair.wake)
-            }
-        } catch {
-            for date in scheduled { _ = try? runHelper(["cancel", "codex", timestampArgument(date.timeIntervalSince1970)]) }
-            throw error
-        }
+        let pairs = try TrackerWakeSchedule.synchronize(provider: "codex", enabled: enabled,
+            slots: slots.map { .init(hour: $0.hour, minute: $0.minute) },
+            testEpoch: defaults.double(forKey: testWakeEpochKey), now: now,
+            run: { _ = try runHelper($0) })
         defaults.set(pairs.map { $0.wake.timeIntervalSince1970 }, forKey: scheduledWakeEpochsKey)
         defaults.set(pairs.map { $0.ping.timeIntervalSince1970 }, forKey: scheduledPingEpochsKey)
         return CodexWakeScheduleSummary(eventCount: pairs.count, nextWake: pairs.first?.wake)
@@ -227,18 +215,6 @@ enum CodexWakeSupport {
         _ = try runHelper(["sleep"])
     }
 
-    private static func futurePingDates(slots: [CodexSessionPinger.ScheduleSlot], now: Date) -> [Date] {
-        let calendar = Calendar.autoupdatingCurrent
-        var dates: [Date] = []
-        for dayOffset in 0...7 {
-            guard let day = calendar.date(byAdding: .day, value: dayOffset, to: calendar.startOfDay(for: now)) else { continue }
-            for slot in slots {
-                if let date = calendar.date(bySettingHour: slot.hour, minute: slot.minute, second: 0, of: day),
-                   date > now.addingTimeInterval(wakeLeadTime + 10) { dates.append(date) }
-            }
-        }
-        return dates.sorted()
-    }
 
     @discardableResult
     private static func runHelper(_ arguments: [String]) throws -> String {
