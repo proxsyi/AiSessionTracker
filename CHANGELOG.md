@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.4 (combined branch)
+
 - Use one schedule editor and session-display control set for Claude and Codex, including minute precision. Remove Codex's empty Activity card, match usage rows, and add live low-usage selection and model refresh controls.
 - Show concise provider-facing model and effort names without raw identifiers. Preserve saved effort choices, distinguish same-named chat variants, and send ChatGPT test pings with the settings currently selected.
 
