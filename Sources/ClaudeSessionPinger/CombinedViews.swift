@@ -391,6 +391,61 @@ struct CombinedSettingsView: View {
                                 .toggleStyle(TrackerGlassToggleStyle(accent: ClaudeTheme.accent, clearGlass: true))
                         }
                         .help("Starts Session Tracker automatically after you sign in to this Mac.")
+
+                        Divider()
+                        SectionHeader(text: "Updates")
+                        Text("Current version: \(currentVersion)")
+                            .font(.system(size: 11))
+                            .foregroundColor(ClaudeTheme.textSecondary)
+
+                        HStack {
+                            Text("Install updates automatically")
+                                .font(.system(size: 12, weight: .medium))
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { settings.autoUpdateEnabled },
+                                set: { settings.autoUpdateEnabled = $0 }
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(TrackerGlassToggleStyle(accent: ClaudeTheme.accent, clearGlass: true))
+                        }
+                        .help("When enabled, a daily check installs a new version automatically. Turn this off to review and install updates yourself.")
+
+                        Text("Checks once a day while Session Tracker is running.")
+                            .font(.system(size: 10))
+                            .foregroundColor(ClaudeTheme.textSecondary)
+
+                        if let update = appState.availableUpdate {
+                            Text("Version \(update.version) is available.")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(ClaudeTheme.accent)
+                            if let error = appState.installUpdateError {
+                                Text(error)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.red)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Button(appState.isInstallingUpdate ? "Installing…" : "Update & Restart") {
+                                appState.installUpdate()
+                            }
+                            .claudePrimaryButton()
+                            .disabled(appState.isInstallingUpdate)
+                        } else if let error = appState.updateCheckError {
+                            Text(error)
+                                .font(.system(size: 10))
+                                .foregroundColor(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else if appState.hasCheckedForUpdates {
+                            Text("You're up to date.")
+                                .font(.system(size: 10))
+                                .foregroundColor(ClaudeTheme.textSecondary)
+                        }
+
+                        Button(appState.isCheckingForUpdates ? "Checking…" : "Check for Updates") {
+                            Task { await appState.checkForUpdates() }
+                        }
+                        .claudeGhostButton()
+                        .disabled(appState.isCheckingForUpdates || appState.isInstallingUpdate)
                     }
                 }
                 .padding(20)
@@ -418,6 +473,10 @@ struct CombinedSettingsView: View {
     private func refreshWakeSetupState() {
         appState.refreshWakeTestResult()
         gptFeature.refreshWakeSupportState()
+    }
+
+    private var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
     }
 
     private func settingsSection(for service: CombinedServiceTab) -> CombinedSettingsSection {
