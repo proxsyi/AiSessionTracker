@@ -197,7 +197,8 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
     }
 
     private func selectComposerMode(_ mode: ChatGPTComposerMode, in webView: WKWebView) async throws {
-        let deadline = Date().addingTimeInterval(12)
+        let timeout: TimeInterval = 12
+        let deadline = Date().addingTimeInterval(timeout)
         var clicked = false
         while Date() < deadline {
             let result = try await webView.callAsyncJavaScript(
@@ -221,7 +222,11 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
-        throw ChatGPTPingError.serverError(503, "ChatGPT \(mode.rawValue) composer was unavailable")
+        throw await composerUnavailableError(
+            phase: "work-mode-selection",
+            in: webView,
+            timeout: timeout
+        )
     }
 
     nonisolated static func conversationURL(
@@ -321,7 +326,11 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         guard composerReady else {
-            return failureResponse(status: 503, message: "ChatGPT composer did not become ready.")
+            throw await composerUnavailableError(
+                phase: "composer-readiness",
+                in: webView,
+                timeout: timeout
+            )
         }
 
         try ChatGPTConversationIdentity.validatePage(expected: existingConversationID, url: webView.url)
@@ -350,7 +359,11 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         }
         guard let baseline = baselineResult as? [String: Any],
               baseline["ready"] as? Bool == true else {
-            return failureResponse(status: 503, message: "ChatGPT composer was unavailable.")
+            throw await composerUnavailableError(
+                phase: "composer-insertion",
+                in: webView,
+                timeout: nil
+            )
         }
         let assistantCount = baseline["assistantCount"] as? Int ?? 0
 
@@ -464,6 +477,67 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             browserCheckHeader: "",
             conversationID: nil,
             replyText: nil
+        )
+    }
+
+    private func composerUnavailableError(
+        phase: String,
+        in webView: WKWebView,
+        timeout: TimeInterval?
+    ) async -> ChatGPTPingError {
+        let diagnosticsScript = """
+        const host = location.hostname.toLowerCase();
+        const path = location.pathname;
+        const page = host !== 'chatgpt.com' && !host.endsWith('.chatgpt.com')
+          ? 'external'
+          : path.startsWith('/c/') ? 'conversation' : path === '/' ? 'home' : 'other';
+        const visible = element => {
+          const style = getComputedStyle(element);
+          return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+        };
+        const signInVisible = Array.from(document.querySelectorAll('a, button')).some(element => {
+          const href = element instanceof HTMLAnchorElement ? (element.getAttribute('href') || '') : '';
+          const label = (element.innerText || element.textContent || '').trim();
+          const lowerHref = href.toLowerCase();
+          const lowerLabel = label.toLowerCase();
+          return visible(element) && (lowerHref.includes('/auth/login') || lowerLabel === 'log in' || lowerLabel === 'sign in');
+        });
+        const browserChallengeVisible = Boolean(document.querySelector(
+          '#challenge-form, iframe[src*="challenges.cloudflare.com"], [data-testid*="challenge"]'
+        ));
+        return {
+          page,
+          documentReadyState: document.readyState,
+          signInVisible,
+          browserChallengeVisible
+        };
+        """
+        let result = try? await webView.callAsyncJavaScript(
+            diagnosticsScript,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let values = result as? [String: Any]
+        let allowedPages = ["conversation", "home", "other", "external"]
+        let pageValue = values?["page"] as? String ?? "unknown"
+        let page = allowedPages.contains(pageValue) ? pageValue : "unknown"
+        let readyValue = values?["documentReadyState"] as? String ?? "unknown"
+        let documentReadyState = ["loading", "interactive", "complete"].contains(readyValue) ? readyValue : "unknown"
+        let signInVisible = values?["signInVisible"] as? Bool ?? false
+        let browserChallengeVisible = values?["browserChallengeVisible"] as? Bool ?? false
+        let timeoutSeconds = timeout.map { max(0, Int($0.rounded(.up))) }
+
+        Self.logger.error(
+            "Work composer unavailable; phase=\(phase, privacy: .public), page=\(page, privacy: .public), document=\(documentReadyState, privacy: .public), signIn=\(signInVisible, privacy: .public), browserChallenge=\(browserChallengeVisible, privacy: .public)"
+        )
+        return .composerUnavailable(
+            phase: phase,
+            page: page,
+            documentReadyState: documentReadyState,
+            signInVisible: signInVisible,
+            browserChallengeVisible: browserChallengeVisible,
+            timeoutSeconds: timeoutSeconds
         )
     }
 

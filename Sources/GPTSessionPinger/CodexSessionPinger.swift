@@ -123,6 +123,7 @@ final class CodexSessionPinger: ObservableObject {
         static let countdownFocus = "codexSessionPingerCountdownFocus"
         static let autoStartAvailableSessions = "codexSessionPingerAutoStartAvailableSessions"
         static let history = "codexSessionPingerHistory"
+        static let autoStartRetryAfter = "codexSessionPingerAutoStartRetryAfter"
         static let confirmedModelRecordingVersion = "codexSessionPingerConfirmedModelRecordingVersion"
         static let enableScheduledWake = "codexSessionPingerEnableScheduledWake"
         static let workComposerMigrationVersion = "codexSessionPingerWorkComposerMigrationVersion"
@@ -133,6 +134,7 @@ final class CodexSessionPinger: ObservableObject {
         return UserDefaults(suiteName: "com.proxsyi.sessiontracker") ?? .standard
     }()
     private static let minimumSpacing: TimeInterval = 5 * 60 * 60
+    private static let autoStartFailureCooldown: TimeInterval = 30 * 60
 
     @Published var enabled: Bool { didSet { save(); reschedule() } }
     @Published var model: String { didSet { save() } }
@@ -425,6 +427,7 @@ final class CodexSessionPinger: ObservableObject {
                 conversationID = try ChatGPTConversationIdentity.validate(expected: conversationID, observed: outcome.conversationID)
                 parentMessageID = outcome.parentMessageID
                 lastSuccess = Date()
+                defaults.removeObject(forKey: Keys.autoStartRetryAfter)
                 activeModel = outcome.confirmedModel
                 confirmedEffort = outcome.confirmedReasoningEffort
                 let confirmation = Self.modelConfirmationText(
@@ -481,12 +484,26 @@ final class CodexSessionPinger: ObservableObject {
               !autoStartPending,
               let percent = rollingFiveHourPercent,
               percent < 100 else { return }
+        if let retryAfter = defaults.object(forKey: Keys.autoStartRetryAfter) as? Date,
+           now < retryAfter { return }
         if enabled, let next = nextDate(after: now), next.timeIntervalSince(now) <= Self.minimumSpacing { return }
         if let lastSuccess, now.timeIntervalSince(lastSuccess) < Self.minimumSpacing { return }
         autoStartPending = true
+        defaults.set(
+            now.addingTimeInterval(Self.autoStartFailureCooldown),
+            forKey: Keys.autoStartRetryAfter
+        )
         Task { [weak self] in
             guard let self else { return }
-            _ = await self.sendPing(manual: false)
+            let succeeded = await self.sendPing(manual: false)
+            if succeeded {
+                self.defaults.removeObject(forKey: Keys.autoStartRetryAfter)
+            } else {
+                self.defaults.set(
+                    Date().addingTimeInterval(Self.autoStartFailureCooldown),
+                    forKey: Keys.autoStartRetryAfter
+                )
+            }
             self.autoStartPending = false
         }
     }
