@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v2.0.6
+
+- Reissued with the synchronized three-app notarized release train.
+
+
 ## v2.0.5
 
 - Isolated the standalone GPT preferences domain, updater feed, credentials, and accessibility test harness from the combined and Claude apps.
