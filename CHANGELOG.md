@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v2.0.7
+
+- Reissued with the synchronized three-app notarized release train.
+
 ## v2.0.6
 
 - Reissued with the synchronized three-app notarized release train.
