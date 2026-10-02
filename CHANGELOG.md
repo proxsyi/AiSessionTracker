@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v1.16.4
+
+- Reissued with the synchronized three-app notarized release train.
+
+
 ## v1.16.3
 
 - Isolated the standalone Claude preferences domain, updater feed, credentials, and wake-helper identity from the combined and GPT apps.
