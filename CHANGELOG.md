@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.1.5
+
+- Improve Codex composer readiness handling and report actionable ping failures when the composer is unavailable.
+
+
 ## v0.1.4 (combined branch)
 
 - Use one schedule editor and session-display control set for Claude and Codex, including minute precision. Remove Codex's empty Activity card, match usage rows, and add live low-usage selection and model refresh controls.
