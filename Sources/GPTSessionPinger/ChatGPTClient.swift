@@ -23,6 +23,14 @@ enum ChatGPTPingError: Error, LocalizedError {
     case modelSelectionFailed(String)
     case conversationChanged
     case deliveryUncertain
+    case composerUnavailable(
+        phase: String,
+        page: String,
+        documentReadyState: String,
+        signInVisible: Bool,
+        browserChallengeVisible: Bool,
+        timeoutSeconds: Int?
+    )
 
     var errorDescription: String? {
         switch self {
@@ -38,6 +46,22 @@ enum ChatGPTPingError: Error, LocalizedError {
         case .modelSelectionFailed(let title): return "ChatGPT did not select \(title). Refresh the model list and try again."
         case .conversationChanged: return "The saved pinger chat could not be verified. No different chat will be used. Open the pinger chat and check access."
         case .deliveryUncertain: return "The ping may have been sent, but completion could not be confirmed. It will not be retried automatically."
+        case .composerUnavailable(let phase, let page, let documentReadyState, let signInVisible, let browserChallengeVisible, let timeoutSeconds):
+            let failureTiming = timeoutSeconds.map { "after \($0) seconds" } ?? "during \(phase)"
+            var details = ["page=\(page)", "document=\(documentReadyState)"]
+            if signInVisible { details.append("sign-in controls visible") }
+            if browserChallengeVisible { details.append("browser verification visible") }
+            let nextStep: String
+            if signInVisible {
+                nextStep = "Sign in to ChatGPT in the app, then retry."
+            } else if browserChallengeVisible {
+                nextStep = "Complete ChatGPT's browser verification, then retry."
+            } else if page == "conversation", documentReadyState == "complete" {
+                nextStep = "The page loaded but did not expose the expected Work composer. ChatGPT may have changed its web interface."
+            } else {
+                nextStep = "Check that the embedded ChatGPT page finished loading and is signed in, then retry."
+            }
+            return "The embedded ChatGPT Work composer was unavailable \(failureTiming) (\(details.joined(separator: ", "))). No message was sent. \(nextStep)"
         }
     }
 }
