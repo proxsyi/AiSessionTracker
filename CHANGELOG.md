@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Expose the combined app updater in System settings with daily checks, an automatic-install toggle, manual checking, and an Update & Restart action.
+## v0.1.6
+
+- Add the combined app updater to System settings with daily checks, an automatic-install toggle, manual checking, and an Update & Restart action.
+- Persist the last update check per app so relaunching does not cause extra automatic checks within 24 hours.
 
 ## v0.1.5
 
