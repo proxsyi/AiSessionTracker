@@ -29,6 +29,19 @@ enum UpdateCheckResult: Equatable {
     case failed(String)
 }
 
+enum UpdateCheckSchedule {
+    static let dailyInterval: TimeInterval = 60 * 60 * 24
+
+    static func defaultsKey(bundleIdentifier: String?) -> String {
+        "lastUpdateCheckDate.\(bundleIdentifier ?? "unknown")"
+    }
+
+    static func delay(lastCheck: Date?, now: Date) -> TimeInterval {
+        guard let lastCheck else { return 5 }
+        return max(1, dailyInterval - now.timeIntervalSince(lastCheck))
+    }
+}
+
 private struct GitHubRelease: Decodable {
     struct Asset: Decodable {
         let name: String

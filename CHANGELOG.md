@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Expose the combined app updater in System settings with daily checks, an automatic-install toggle, manual checking, and an Update & Restart action.
+
 ## v0.1.5
 
 - Improve Codex composer readiness handling and report actionable ping failures when the composer is unavailable.

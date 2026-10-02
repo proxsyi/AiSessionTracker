@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
     @Published var lastError: String?
     @Published var nextFireDate: Date?
     @Published var availableUpdate: UpdateInfo?
+    @Published var hasCheckedForUpdates = false
     @Published var isCheckingForUpdates = false
     @Published var updateCheckError: String?
     @Published var isInstallingUpdate = false
@@ -519,17 +520,21 @@ final class AppState: ObservableObject {
 
     private let updateTimer = TrackerInvalidatingTimer()
 
-    /// Checks once shortly after launch, then once a day after that.
+    private var lastUpdateCheckDefaultsKey: String {
+        UpdateCheckSchedule.defaultsKey(bundleIdentifier: Bundle.main.bundleIdentifier)
+    }
+
+    /// Checks shortly after launch, then no more than once every 24 hours.
     /// Any failure (no network, no feed configured yet, bad response) is
     /// stored in `updateCheckError` and otherwise ignored -- this never
     /// interrupts pinging or shows an alert.
     private func scheduleUpdateChecks() {
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            await self?.checkForUpdates()
-        }
         updateTimer.timer?.invalidate()
-        updateTimer.timer = Timer.scheduledTimer(withTimeInterval: 60 * 60 * 24, repeats: true) { [weak self] _ in
+        guard updatesEnabled else { return }
+
+        let lastCheck = UserDefaults.standard.object(forKey: lastUpdateCheckDefaultsKey) as? Date
+        let delay = UpdateCheckSchedule.delay(lastCheck: lastCheck, now: Date())
+        updateTimer.timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             Task { await self?.checkForUpdates() }
         }
     }
@@ -761,7 +766,10 @@ final class AppState: ObservableObject {
             availableUpdate = nil
             updateCheckError = message
         }
+        UserDefaults.standard.set(Date(), forKey: lastUpdateCheckDefaultsKey)
+        hasCheckedForUpdates = true
         isCheckingForUpdates = false
+        scheduleUpdateChecks()
     }
 
     /// Downloads the available update's app bundle, swaps it in for this
