@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.16.6
+
+- Skip pings when Claude reports its rolling five-hour or weekly allowance is exhausted.
+- Reduce background usage refreshes to every 20 minutes.
+
 ## Unreleased
 
 ## v1.16.5
