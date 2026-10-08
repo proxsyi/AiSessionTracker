@@ -379,6 +379,23 @@ final class AppState: ObservableObject {
         }
 
         isPinging = true
+        defer { isPinging = false }
+        await refreshUsageIfStale()
+        guard let currentUsage = usage,
+              Date().timeIntervalSince(currentUsage.fetchedAt) < 60 else {
+            status = .failure
+            lastError = "Usage limits could not be refreshed. Ping skipped to avoid sending while a limit may be exhausted."
+            rescheduleTimer()
+            return false
+        }
+        if currentUsage.sessionPercent.map({ $0 >= 100 }) == true
+            || currentUsage.weeklyPercent.map({ $0 >= 100 }) == true {
+            status = .failure
+            lastError = "Claude's 5-hour or weekly limit is exhausted. Ping skipped until a limit resets."
+            rescheduleTimer()
+            return false
+        }
+
         status = .sending
         lastError = nil
 
@@ -516,7 +533,7 @@ final class AppState: ObservableObject {
 
     private var usageTimer: Timer?
 
-    /// Fetches usage shortly after launch, then every 5 minutes, mirroring how
+    /// Fetches usage shortly after launch, then every 20 minutes, mirroring how
     /// ClaudeUsageBar keeps its numbers fresh. Failures only set `usageError`
     /// and never interrupt pinging.
     private func scheduleUsageRefreshes() {
@@ -525,7 +542,7 @@ final class AppState: ObservableObject {
             await self?.refreshUsage()
         }
         usageTimer?.invalidate()
-        usageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 20 * 60, repeats: true) { [weak self] _ in
             Task { await self?.refreshUsage() }
         }
     }
