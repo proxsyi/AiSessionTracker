@@ -57,7 +57,7 @@ final class AppState: ObservableObject {
             await self?.refreshUsage()
         }
         usageTimer?.invalidate()
-        usageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 20 * 60, repeats: true) { [weak self] _ in
             Task { await self?.refreshUsage() }
         }
     }
