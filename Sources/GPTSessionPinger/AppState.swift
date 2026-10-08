@@ -34,6 +34,8 @@ final class AppState: ObservableObject {
     private var usageAlerts: [String: TrackerUsageAlertState] = [:]
     private var serviceAlerts = TrackerServiceAlertState()
     private var autoUpdateAttemptedVersions: Set<String> = []
+    private var lastModelCatalogRefreshAt: Date?
+    private static let modelCatalogRefreshInterval: TimeInterval = 60 * 60
     private let updatesEnabled: Bool
 
     init(settings: SettingsStore, history: UsageHistoryStore, updatesEnabled: Bool = true) {
@@ -51,7 +53,7 @@ final class AppState: ObservableObject {
             await self?.refreshUsage()
         }
         usageTimer.timer?.invalidate()
-        usageTimer.timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        usageTimer.timer = Timer.scheduledTimer(withTimeInterval: 20 * 60, repeats: true) { [weak self] _ in
             Task { await self?.refreshUsage() }
         }
     }
@@ -97,7 +99,9 @@ final class AppState: ObservableObject {
     }
 
     private func refreshModelCatalog() async {
+        let now = Date()
         guard settings.isConfigured,
+              lastModelCatalogRefreshAt.map({ now.timeIntervalSince($0) >= Self.modelCatalogRefreshInterval }) ?? true,
               let auth = try? await ChatGPTWebSession.resolve(
                 savedCredential: settings.sessionKey,
                 accountID: settings.organizationID,
@@ -109,11 +113,13 @@ final class AppState: ObservableObject {
               ),
               !models.isEmpty else { return }
         settings.registerAvailablePingModels(models)
+        lastModelCatalogRefreshAt = now
     }
 
     func clearAccountData() {
         usage = nil
         usageError = nil
+        lastModelCatalogRefreshAt = nil
         usageAlerts.removeAll()
         pingStatus = nil
     }
@@ -138,6 +144,11 @@ final class AppState: ObservableObject {
         defer { isPinging = false }
         let requestedModel = model ?? settings.pingModel
         let requestedEffort = effort ?? settings.pingReasoningEffort
+        await refreshUsageIfStale()
+        if let blockedTrack = usage?.exhaustedChatGPTTrack(for: requestedModel) {
+            pingStatus = "\(blockedTrack.title) is exhausted. ChatGPT ping skipped until it resets."
+            return nil
+        }
         do {
             let auth = try await ChatGPTWebSession.resolve(savedCredential: settings.sessionKey,
                 accountID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader)

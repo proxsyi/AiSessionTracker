@@ -30,8 +30,24 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
     private var navigationContinuation: CheckedContinuation<Void, Error>?
     private let operationGate = ChatGPTBrowserOperationGate()
 
+    /// chatgpt.com is a heavy SPA: its renderer settles around 600-750 MB of
+    /// WebKit malloc once a conversation has been loaded. Pings are hours
+    /// apart, so holding that renderer between them dominated the app's
+    /// footprint. The renderer is torn down once it has been idle this long,
+    /// which keeps an auth-refresh-then-send pair (and the retry backoffs
+    /// above it) on one renderer without paying for it until the next ping.
+    private static let idleTeardownDelay: TimeInterval = 15
+    private var idleTeardownTask: Task<Void, Never>?
+    private var activeOperations = 0
+
+    /// Cloudflare clearance cookies persist in the on-disk default data store,
+    /// so they are cleared once per app launch rather than once per renderer.
+    /// Tearing the renderer down must not force a fresh browser check.
+    private var hasClearedStaleBrowserChecks = false
+
     func resolveAuth(cookieHeader: String) async throws -> ChatGPTAuthSession {
         try await operationGate.acquire()
+        beginBrowserOperation()
         defer { finishBrowserOperation() }
         let webView = try await preparedWebView(cookieHeader: cookieHeader)
         let script = """
@@ -87,6 +103,7 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         timeout: TimeInterval
     ) async throws -> ChatGPTBrowserResponse {
         try await operationGate.acquire()
+        beginBrowserOperation()
         defer { finishBrowserOperation() }
         let webView = try await preparedWebView(cookieHeader: cookieHeader)
         try await loadChatGPT(
@@ -109,11 +126,11 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
     }
 
     private func preparedWebView(cookieHeader: String) async throws -> WKWebView {
+        idleTeardownTask?.cancel()
+        idleTeardownTask = nil
         let webView: WKWebView
-        let isNewWebView: Bool
         if let existing = self.webView {
             webView = existing
-            isNewWebView = false
         } else {
             let configuration = WKWebViewConfiguration()
             configuration.websiteDataStore = .default()
@@ -121,7 +138,6 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
             webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
             webView.navigationDelegate = self
             self.webView = webView
-            isNewWebView = true
 
             // WebKit throttles work that is never attached to a window. Keep
             // a normal-sized renderer offscreen so ChatGPT's browser check
@@ -139,10 +155,12 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         }
 
         if #available(macOS 14.0, *) { webView.configuration.preferences.inactiveSchedulingPolicy = .none }
+        let clearStaleBrowserChecks = !hasClearedStaleBrowserChecks
+        hasClearedStaleBrowserChecks = true
         await installCookies(
             cookieHeader,
             into: webView.configuration.websiteDataStore.httpCookieStore,
-            clearStaleBrowserChecks: isNewWebView
+            clearStaleBrowserChecks: clearStaleBrowserChecks
         )
         if webView.url?.host == "chatgpt.com", !webView.isLoading { return webView }
 
@@ -150,11 +168,52 @@ final class ChatGPTBrowserTransport: NSObject, WKNavigationDelegate {
         return webView
     }
 
+    private func beginBrowserOperation() {
+        activeOperations += 1
+        idleTeardownTask?.cancel()
+        idleTeardownTask = nil
+    }
+
     private func finishBrowserOperation() {
         // Work uses an asynchronous stream handoff. Keep the renderer running
         // during the operation, then suspend idle page work to save battery.
         if #available(macOS 14.0, *) { webView?.configuration.preferences.inactiveSchedulingPolicy = .suspend }
+        activeOperations = max(0, activeOperations - 1)
+        scheduleIdleTeardown()
         operationGate.release()
+    }
+
+    private func scheduleIdleTeardown() {
+        guard activeOperations == 0, webView != nil else { return }
+        idleTeardownTask?.cancel()
+        let delay = Self.idleTeardownDelay
+        idleTeardownTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.teardownRenderer()
+        }
+    }
+
+    /// Releases the renderer and its offscreen host window. Cookies and the
+    /// conversation ID live outside the renderer, so the next ping rebuilds an
+    /// equivalent one and still lands in the same cloud chat.
+    private func teardownRenderer() {
+        guard activeOperations == 0, let webView else { return }
+        idleTeardownTask = nil
+        navigationContinuation?.resume(throwing: CancellationError())
+        navigationContinuation = nil
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.removeFromSuperview()
+        if let panel = browserPanel {
+            panel.contentView = nil
+            panel.orderOut(nil)
+            panel.close()
+        }
+        browserPanel = nil
+        self.webView = nil
+        Self.logger.info("Released idle ChatGPT renderer")
     }
 
     private func loadChatGPT(in webView: WKWebView) async throws {

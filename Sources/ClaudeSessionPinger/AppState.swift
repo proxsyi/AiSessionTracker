@@ -380,6 +380,22 @@ final class AppState: ObservableObject {
     @discardableResult
     private func runPing(manual: Bool, configuration: PingConfiguration? = nil) async -> Bool {
         guard !isPinging else { return false }
+        isPinging = true
+        defer { isPinging = false }
+
+        await refreshUsageIfStale()
+        guard let currentUsage = usage,
+              Date().timeIntervalSince(currentUsage.fetchedAt) < 60 else {
+            status = .failure
+            lastError = "Usage limits could not be refreshed. Ping skipped to avoid sending while a limit may be exhausted."
+            return false
+        }
+        if currentUsage.sessionPercent.map({ $0 >= 100 }) == true
+            || currentUsage.weeklyPercent.map({ $0 >= 100 }) == true {
+            status = .failure
+            lastError = "Claude's 5-hour or weekly limit is exhausted. Ping skipped until a limit resets."
+            return false
+        }
         let request = configuration ?? PingConfiguration(sessionKey: settings.sessionKey,
             organizationID: settings.organizationID, cookieHeader: settings.effectiveCookieHeader,
             model: settings.model, message: settings.message)
@@ -397,7 +413,6 @@ final class AppState: ObservableObject {
             return true
         }
 
-        isPinging = true
         let wakeActivity = TrackerWakeActivity.shared.begin()
         defer { TrackerWakeActivity.shared.end(wakeActivity) }
         status = .sending
@@ -541,7 +556,7 @@ final class AppState: ObservableObject {
 
     private let usageTimer = TrackerInvalidatingTimer()
 
-    /// Fetches usage shortly after launch, then every 5 minutes, mirroring how
+    /// Fetches usage shortly after launch, then every 20 minutes, mirroring how
     /// ClaudeUsageBar keeps its numbers fresh. Failures only set `usageError`
     /// and never interrupt pinging.
     private func scheduleUsageRefreshes() {
@@ -550,7 +565,7 @@ final class AppState: ObservableObject {
             await self?.refreshUsage()
         }
         usageTimer.timer?.invalidate()
-        usageTimer.timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        usageTimer.timer = Timer.scheduledTimer(withTimeInterval: 20 * 60, repeats: true) { [weak self] _ in
             Task { await self?.refreshUsage() }
         }
     }

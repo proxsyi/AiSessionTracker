@@ -68,6 +68,23 @@ struct GPTUsage: Equatable {
     var weeklyPercent: Int? { weeklyTrack?.usedPercent }
     var weeklyResetsAt: Date? { weeklyTrack?.resetsAt }
 
+    /// Only Codex's own rolling and weekly windows suppress Codex pings.
+    /// Code review, workspace spend controls, and ChatGPT models are separate.
+    var blocksCodexPing: Bool {
+        [rollingFiveHourTrack, weeklyTrack].compactMap { $0 }
+            .contains { $0.isBlocked || $0.usedPercent.map { $0 >= 100 } == true }
+    }
+
+    func exhaustedChatGPTTrack(for model: String) -> GPTUsageTrack? {
+        tracks.first { track in
+            guard track.scope == .chatGPTModel else { return false }
+            let accountLimit = track.id == "chatgpt-message-usage" && track.modelSlug == nil
+            let modelLimit = track.modelSlug?.caseInsensitiveCompare(model) == .orderedSame
+            return (accountLimit || modelLimit)
+                && (track.isBlocked || track.usedPercent.map { $0 >= 100 } == true)
+        }
+    }
+
 }
 
 struct GPTServiceStatus: Equatable {

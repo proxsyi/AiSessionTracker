@@ -57,6 +57,10 @@ struct CookieLoginRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
         coordinator.stopPolling()
         coordinator.closeAllPopups()
+        nsView.stopLoading()
+        nsView.navigationDelegate = nil
+        nsView.uiDelegate = nil
+        nsView.removeFromSuperview()
     }
 
     @MainActor
@@ -67,6 +71,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
         private let pollTimer = TrackerInvalidatingTimer()
         private var didCapture = false
         private var isValidatingCookies = false
+        private var lastValidationAttempt = Date.distantPast
         private var popupWindows: [NSWindow] = []
 
         init(onCookiesCaptured: @escaping (ChatGPTLoginCapture) -> Void, onStateChange: @escaping (CookieLoginState) -> Void) {
@@ -76,7 +81,7 @@ struct CookieLoginRepresentable: NSViewRepresentable {
 
         func attach(to webView: WKWebView) {
             self.webView = webView
-            let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+            let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
                 Task { @MainActor in
                     self?.checkCookies()
                 }
@@ -189,16 +194,49 @@ struct CookieLoginRepresentable: NSViewRepresentable {
                   let store = webView?.configuration.websiteDataStore.httpCookieStore else { return }
             store.getAllCookies { [weak self] cookies in
                 guard let self, !self.didCapture, !self.isValidatingCookies else { return }
-                let chatGPTCookies = cookies.filter { $0.domain.contains("chatgpt.com") || $0.domain.contains("openai.com") }
+                // The captured header is later restored into chatgpt.com's
+                // cookie store. Auth-domain cookies must not be copied onto
+                // chatgpt.com, where they could shadow or confuse the session.
+                let chatGPTCookies = cookies.filter { $0.domain.contains("chatgpt.com") }
                 guard !chatGPTCookies.isEmpty else { return }
+                guard let host = self.webView?.url?.host,
+                      host == "chatgpt.com" || host.hasSuffix(".chatgpt.com") else { return }
+                guard Date().timeIntervalSince(self.lastValidationAttempt) >= 10 else { return }
 
                 let header = chatGPTCookies
                     .map { "\($0.name)=\($0.value)" }
                     .joined(separator: "; ")
                 self.isValidatingCookies = true
+                self.lastValidationAttempt = Date()
                 Task { [weak self] in
-                    let authSession = await ChatGPTWebSession.fetchAuthSession(cookieHeader: header)
                     guard let self else { return }
+                    let script = """
+                    const response = await fetch('/api/auth/session', {
+                      credentials: 'include', headers: { 'Accept': 'application/json' }
+                    });
+                    if (!response.ok) return null;
+                    const session = await response.json();
+                    const account = session.account || {};
+                    return {
+                      accessToken: session.accessToken || session.access_token || '',
+                      accountID: session.accountId || session.account_id || session.chatgpt_account_id || account.id || '',
+                      planType: session.planType || session.plan_type || session.chatgpt_plan_type || account.plan_type || ''
+                    };
+                    """
+                    let authSession: ChatGPTAuthSession?
+                    if let webView = self.webView,
+                       let result = try? await webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page),
+                       let object = result as? [String: Any],
+                       let accessToken = object["accessToken"] as? String,
+                       accessToken.count > 40 {
+                        authSession = ChatGPTAuthSession(
+                            accessToken: accessToken,
+                            accountID: Self.nonEmptyString(object["accountID"] as? String),
+                            planType: Self.nonEmptyString(object["planType"] as? String) ?? ChatGPTWebSession.planType(from: accessToken)
+                        )
+                    } else {
+                        authSession = nil
+                    }
                     self.isValidatingCookies = false
                     guard let authSession, !self.didCapture else { return }
                     // Do not save transient OAuth, account-picker, or CSRF
@@ -213,6 +251,12 @@ struct CookieLoginRepresentable: NSViewRepresentable {
                     ))
                 }
             }
+        }
+
+        private static func nonEmptyString(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
 
     }

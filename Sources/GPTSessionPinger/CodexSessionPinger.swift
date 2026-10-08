@@ -168,9 +168,12 @@ final class CodexSessionPinger: ObservableObject {
 
     private let settings: SettingsStore
     private let hostAllowsPinging: Bool
+    private let refreshUsage: (() async -> GPTUsage?)?
     private let scheduler = TrackerDailyScheduler()
     private var rollingFiveHourPercent: Int?
     private var rollingFiveHourReset: Date?
+    private var weeklyPercent: Int?
+    private var usageLimitReached = false
     private var sessionAvailability = TrackerSessionAvailabilityState()
     private var autoStartPending = false
     private var wakeSyncGeneration = 0
@@ -181,10 +184,12 @@ final class CodexSessionPinger: ObservableObject {
 
     private let defaults: UserDefaults
 
-    init(settings: SettingsStore, hostAllowsPinging: Bool = false, defaultsOverride: UserDefaults? = nil) {
+    init(settings: SettingsStore, hostAllowsPinging: Bool = false, defaultsOverride: UserDefaults? = nil,
+         refreshUsage: (() async -> GPTUsage?)? = nil) {
         self.defaults = defaultsOverride ?? Self.defaultDefaults
         self.settings = settings
         self.hostAllowsPinging = hostAllowsPinging
+        self.refreshUsage = refreshUsage
         let defaults = self.defaults
         let workComposerMigrationVersion = defaults.integer(forKey: Keys.workComposerMigrationVersion)
         let requiresWorkComposerMigration = workComposerMigrationVersion < 1
@@ -338,11 +343,15 @@ final class CodexSessionPinger: ObservableObject {
         guard let usage else {
             rollingFiveHourPercent = nil
             rollingFiveHourReset = nil
+            weeklyPercent = nil
+            usageLimitReached = false
             sessionAvailability = TrackerSessionAvailabilityState()
             return
         }
         rollingFiveHourPercent = usage.rollingFiveHourPercent
         rollingFiveHourReset = usage.rollingFiveHourResetsAt
+        weeklyPercent = usage.weeklyPercent
+        usageLimitReached = usage.blocksCodexPing
 
         if sessionAvailability.observe(percent: rollingFiveHourPercent, reset: rollingFiveHourReset), notifySessionAvailable {
             notify(
@@ -378,6 +387,21 @@ final class CodexSessionPinger: ObservableObject {
         guard hostAllowsPinging else { return false }
         guard !isPinging else { return false }
         guard manual || TrackerSessionTiming.allowsAutomaticPing(now: Date(), lastSuccess: lastSuccess) else { return false }
+        isPinging = true
+        defer { isPinging = false }
+        if let refreshUsage {
+            guard let usage = await refreshUsage(), Date().timeIntervalSince(usage.fetchedAt) < 60 else {
+                status = "Codex usage limits could not be refreshed. Ping skipped to avoid sending while a limit may be exhausted."
+                reschedule()
+                return false
+            }
+            updateUsage(usage)
+        }
+        if usageLimitReached {
+            status = "Codex's 5-hour or weekly limit is exhausted. Ping skipped until a limit resets."
+            reschedule()
+            return false
+        }
         let requested = preferences ?? self.preferences
         guard !needsChatRecovery else {
             recordFailure("The first ping's chat was not confirmed. Automatic creation is paused to avoid a duplicate. Check Work before choosing Start fresh chat.", manual: manual)
@@ -389,11 +413,9 @@ final class CodexSessionPinger: ObservableObject {
             reschedule()
             return false
         }
-        isPinging = true
         let wakeActivity = TrackerWakeActivity.shared.begin()
         defer { TrackerWakeActivity.shared.end(wakeActivity) }
         status = nil
-        defer { isPinging = false }
         let maxAttempts = 3
         var finalError: Error?
         for attempt in 1...maxAttempts {

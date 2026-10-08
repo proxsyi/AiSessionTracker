@@ -3,6 +3,34 @@ import XCTest
 @testable import GPTTrackerFeature
 
 final class UsageCheckerTests: XCTestCase {
+    func testPingLimitChecksStayWithinTheirAIAndModel() {
+        func track(_ id: String, scope: GPTUsageScope, percent: Int, seconds: Int? = nil, model: String? = nil) -> GPTUsageTrack {
+            GPTUsageTrack(id: id, scope: scope, title: id, usedPercent: percent, remaining: nil,
+                          limit: nil, resetsAt: nil, windowSeconds: seconds, isBlocked: false, modelSlug: model)
+        }
+        let usage = GPTUsage(tracks: [
+            track("codex-rolling", scope: .codex, percent: 100, seconds: 18_000),
+            track("code-review-weekly", scope: .codex, percent: 100, seconds: 604_800),
+            track("model-gpt-5-mini", scope: .chatGPTModel, percent: 100, model: "gpt-5-mini"),
+            track("model-gpt-5-pro", scope: .chatGPTModel, percent: 20, model: "gpt-5-pro")
+        ], blockedFeatures: [], planType: nil, fetchedAt: Date())
+
+        XCTAssertTrue(usage.blocksCodexPing)
+        XCTAssertEqual(usage.exhaustedChatGPTTrack(for: "GPT-5-MINI")?.id, "model-gpt-5-mini")
+        XCTAssertNil(usage.exhaustedChatGPTTrack(for: "gpt-5-pro"))
+    }
+
+    func testChatGPTAccountWideLimitAppliesWithoutBlockingCodex() {
+        let usage = GPTUsage(tracks: [
+            GPTUsageTrack(id: "chatgpt-message-usage", scope: .chatGPTModel, title: "All ChatGPT messages",
+                          usedPercent: 100, remaining: 0, limit: 100, resetsAt: nil,
+                          windowSeconds: 3_600, isBlocked: true, modelSlug: nil)
+        ], blockedFeatures: [], planType: nil, fetchedAt: Date())
+
+        XCTAssertFalse(usage.blocksCodexPing)
+        XCTAssertNotNil(usage.exhaustedChatGPTTrack(for: "any-model"))
+    }
+
     func testPartialUsageWarningsAreNeverSilent() {
         XCTAssertNil(AppState.partialUsageMessage(for: []))
         XCTAssertEqual(
