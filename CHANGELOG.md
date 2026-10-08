@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.1.7
+
+- Skip Claude, Codex, and ChatGPT pings when that provider's reported allowance is exhausted; refresh usage limits before sending.
+- Reduce background usage refreshes to every 20 minutes and model-catalog refreshes to hourly.
+- Release idle ChatGPT WebKit renderers promptly and clean up the login webview when its sheet closes.
+- Validate ChatGPT login inside its embedded browser and avoid copying auth-domain cookies onto chatgpt.com.
+
 ## Unreleased
 
 ## v0.1.6
