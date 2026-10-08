@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.8
+
+- Reduce background usage refreshes to every 20 minutes.
+
 ## Unreleased
 
 ## v2.0.7
